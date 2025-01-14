@@ -10,7 +10,7 @@ def keys_detection(keys, show_screen):
     original_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     # Double the width while keeping the original height
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, original_width * 4)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, original_width * 3) #change *2 to *4
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, original_height)
 
     # Print the new resolution for debugging

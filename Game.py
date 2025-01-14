@@ -10,8 +10,8 @@ def game(player_image_path, opponent_image_path, keys, show_screen):
     pygame.init()
 
     # Define screen size and background
-    proportion = 1.2
-    WIDTH, HEIGHT = 720 * proportion, 1280 * proportion
+    proportion = 0.6
+    WIDTH, HEIGHT = 720 * proportion, 1280 * proportion   #720,1280
 
     monitor = get_monitors()[0]  # Use the primary monitor
     screen_width = monitor.width
@@ -96,13 +96,25 @@ def game(player_image_path, opponent_image_path, keys, show_screen):
         # Raise score while the ball didn't touch the player paddle and start over
         if ball.y <= 0:
             player_score += 1
+            x_speed *= 1.5
+            y_speed *= 1.5
             ball.center = (WIDTH / 2, HEIGHT / 2)
             x_speed, y_speed = random.choice([x_speed, -1 * x_speed]), random.choice([y_speed, -1 * y_speed])
         if ball.y >= HEIGHT:
             opponent_score += 1
+            x_speed *= 1.5
+            y_speed *= 1.5
             ball.center = (WIDTH / 2, HEIGHT / 2)
             x_speed, y_speed = random.choice([x_speed, -1 * x_speed]), random.choice([y_speed, -1 * y_speed])
-
+        if player_score == 3 or opponent_score == 3:
+            if player_score == 3:
+                winner_text = LARGE_FONT.render("Player Wins!", True, "black")
+            else:
+                winner_text = LARGE_FONT.render("Opponent Wins!", True, "black")
+            SCREEN.blit(winner_text, (WIDTH / 2 - winner_text.get_width() / 2, HEIGHT / 2 - winner_text.get_height() / 2))
+            pygame.display.update()
+            pygame.time.delay(2000)
+            break
         # Change the ball direction when touch the player paddle
         if player.y - ball.height <= ball.y <= player.bottom and ball.x in range(player.left - ball.height,
                                                                                  player.right + ball.height):
@@ -121,7 +133,7 @@ def game(player_image_path, opponent_image_path, keys, show_screen):
 
         # Delete the old ball and paddles from screen
         SCREEN.blit(background, (0, 0))
-
+    
         # Draw the images in the new positions
         SCREEN.blit(player_image, player.topleft)
         SCREEN.blit(opponent_image, opponent.topleft)
