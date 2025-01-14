@@ -1,10 +1,11 @@
 from Game import game
 import threading
 from Image_processing import keys_detection
+from GUI import restart_gui
 
 # Global Variables
 keys = {"player left": False, "player right": False, "opponent left": False, "opponent right": False}
-show_screen = {"show_screen": False, "game_width": 550}
+show_screen = {"show_screen": False, "game_width": 550, "pic": False, "video_prepared": False}
 
 # Prompt for player and opponent names
 player_name = input("Enter the player's name: ")
