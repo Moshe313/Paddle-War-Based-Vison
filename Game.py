@@ -107,7 +107,8 @@ def game(player_image_path, opponent_image_path, keys, show_screen, player_name,
             ball.center = (WIDTH / 2, HEIGHT / 2)
             x_speed, y_speed = random.choice([x_speed, -1 * x_speed]), random.choice([y_speed, -1 * y_speed])
         if player_score == 3 or opponent_score == 3:
-            if player_score == 3: 
+    
+            if player_score == 3:
                winner_text = LARGE_FONT.render(player_name +" win!", True, "black")
             else:
                 winner_text = LARGE_FONT.render(opponent_name + " win!", True, "black")
@@ -145,5 +146,4 @@ def game(player_image_path, opponent_image_path, keys, show_screen, player_name,
 
         pygame.display.update()
         CLOCK.tick(100)
-
 

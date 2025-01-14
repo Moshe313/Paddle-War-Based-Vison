@@ -39,7 +39,7 @@ def restart_gui():
     root.title("Tennis Game")
 
     # Load the background image
-    background_image = PhotoImage(file="background.png")
+    background_image = PhotoImage(file="GUI_BG.png")
     background_label = tk.Label(root, image=background_image)
     background_label.place(relwidth=1, relheight=1)
 
