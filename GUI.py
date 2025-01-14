@@ -7,7 +7,8 @@ from Image_processing import keys_detection
 
 # Global Variables
 keys = {"player left": False, "player right": False, "opponent left": False, "opponent right": False}
-show_screen = {"show_screen": False, "game_width": 550}
+show_screen = {"show_screen": False, "game_width": 550, "pic": False, "video_prepared": False}
+
 
 def start_game(player_name, opponent_name):
     # Start detection thread
@@ -20,6 +21,7 @@ def start_game(player_name, opponent_name):
 
     # Restart the GUI after the game ends
     restart_gui()
+
 
 def on_start():
     player_name = player_name_entry.get()
@@ -44,11 +46,11 @@ def restart_gui():
     background_label.place(relwidth=1, relheight=1)
 
     # Create and place the labels and entry widgets
-    tk.Label(root, text="Top/Right Player's Name:", bg="white").grid(row=0, column=0, padx=10, pady=10)
+    tk.Label(root, text="Left Player's Name:", bg="white").grid(row=0, column=0, padx=10, pady=10)
     player_name_entry = tk.Entry(root)
     player_name_entry.grid(row=0, column=1, padx=10, pady=10)
 
-    tk.Label(root, text="Bottom/Left Player's Name:", bg="white").grid(row=1, column=0, padx=10, pady=10)
+    tk.Label(root, text="Right Player's Name:", bg="white").grid(row=1, column=0, padx=10, pady=10)
     opponent_name_entry = tk.Entry(root)
     opponent_name_entry.grid(row=1, column=1, padx=10, pady=10)
 
