@@ -5,7 +5,7 @@ import os
 from screeninfo import get_monitors
 
 
-def game(player_image_path, opponent_image_path, keys, show_screen):
+def game(player_image_path, opponent_image_path, keys, show_screen, player_name, opponent_name):
     # Initialize Pygame
     pygame.init()
 
@@ -45,7 +45,7 @@ def game(player_image_path, opponent_image_path, keys, show_screen):
     # Ball
     ball = pygame.Rect(0, 0, 20, 20)
     ball.center = (WIDTH / 2, HEIGHT / 2)
-    x_speed, y_speed = 0.5, 0.5
+    x_speed, y_speed = 0.8, 0.8
 
     FONT = pygame.font.SysFont("Consolas", int(WIDTH / 20))
     LARGE_FONT = pygame.font.SysFont("Consolas", int(WIDTH / 10))
@@ -96,24 +96,24 @@ def game(player_image_path, opponent_image_path, keys, show_screen):
         # Raise score while the ball didn't touch the player paddle and start over
         if ball.y <= 0:
             player_score += 1
-            x_speed *= 1.5
-            y_speed *= 1.5
+            x_speed *= 1.1
+            y_speed *= 1.1
             ball.center = (WIDTH / 2, HEIGHT / 2)
             x_speed, y_speed = random.choice([x_speed, -1 * x_speed]), random.choice([y_speed, -1 * y_speed])
         if ball.y >= HEIGHT:
             opponent_score += 1
-            x_speed *= 1.5
-            y_speed *= 1.5
+            x_speed *= 1.1
+            y_speed *= 1.1
             ball.center = (WIDTH / 2, HEIGHT / 2)
             x_speed, y_speed = random.choice([x_speed, -1 * x_speed]), random.choice([y_speed, -1 * y_speed])
         if player_score == 3 or opponent_score == 3:
-            if player_score == 3:
-                winner_text = LARGE_FONT.render("Player Wins!", True, "black")
+            if player_score == 3: 
+               winner_text = LARGE_FONT.render(player_name +" win!", True, "black")
             else:
-                winner_text = LARGE_FONT.render("Opponent Wins!", True, "black")
+                winner_text = LARGE_FONT.render(opponent_name + " win!", True, "black")
             SCREEN.blit(winner_text, (WIDTH / 2 - winner_text.get_width() / 2, HEIGHT / 2 - winner_text.get_height() / 2))
             pygame.display.update()
-            pygame.time.delay(2000)
+            pygame.time.delay(3000)
             break
         # Change the ball direction when touch the player paddle
         if player.y - ball.height <= ball.y <= player.bottom and ball.x in range(player.left - ball.height,
