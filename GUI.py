@@ -29,8 +29,11 @@ def on_start():
     root.destroy()
     start_game(player_name, opponent_name)
 
+def on_quit():
+    root.destroy()
+
 def restart_gui():
-    global root, player_name_entry, opponent_name_entry, start_button
+    global root, player_name_entry, opponent_name_entry, start_button, quit_button
     root = tk.Tk()
     root.title("Tennis Game")
 
@@ -45,7 +48,11 @@ def restart_gui():
 
     # Create and place the start button
     start_button = tk.Button(root, text="Start Game", command=on_start)
-    start_button.grid(row=2, column=0, columnspan=2, pady=20)
+    start_button.grid(row=2, column=0, columnspan=2, pady=10)
+
+    # Create and place the quit button
+    quit_button = tk.Button(root, text="Quit", command=on_quit)
+    quit_button.grid(row=3, column=0, columnspan=2, pady=10)
 
     # Run the GUI event loop
     root.mainloop()
