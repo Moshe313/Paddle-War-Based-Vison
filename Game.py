@@ -7,6 +7,9 @@ from screeninfo import get_monitors
 
 def game(player_image_path, opponent_image_path, keys, show_screen, player_name, opponent_name):
     # Initialize Pygame
+    while not show_screen["video_prepared"]:
+        pass
+    pygame.time.delay(500)  # 500 milliseconds
     pygame.init()
 
     # Define screen size and background
@@ -24,14 +27,47 @@ def game(player_image_path, opponent_image_path, keys, show_screen, player_name,
     SCREEN.blit(background, (0, 0))
     pygame.display.set_caption("Hand Movement Game")
 
+
+    FONT = pygame.font.SysFont("Consolas", int(WIDTH / 20))
+    LARGE_FONT = pygame.font.SysFont("Consolas", int(WIDTH / 15))
+    CLOCK = pygame.time.Clock()
+
+    pic_text = LARGE_FONT.render("Be ready for picture!", True, "black")
+    LARGE_FONT = pygame.font.SysFont("Consolas", int(WIDTH / 10))
+    say_cheese = LARGE_FONT.render("Say Cheese!", True, "black")
+    counting_text = [LARGE_FONT.render(str(i), True, "black") for i in range(3, 0, -1)]
+    SCREEN.blit(pic_text, (WIDTH / 2 - pic_text.get_width() / 2, HEIGHT / 2 - pic_text.get_height() / 2))
+    pygame.display.update()
+    pygame.time.delay(1000)  # 500 milliseconds
+    for num in counting_text:
+        SCREEN.blit(background, (0, 0))
+        while not show_screen["show_screen"]:
+            pass
+        SCREEN.blit(num, (WIDTH / 2 - num.get_width() / 2, HEIGHT / 2 - num.get_height() / 2))
+        pygame.display.update()
+        pygame.time.delay(500)
+    SCREEN.blit(background, (0, 0))
+    pygame.display.update()
+    pygame.time.delay(500)  # 500 milliseconds
+    SCREEN.blit(say_cheese, (WIDTH / 2 - pic_text.get_width() / 2, HEIGHT / 2 - pic_text.get_height() / 2))
+    pygame.display.update()
+    pygame.time.delay(1000)  # 500 milliseconds
+
+    show_screen["pic"] = True
+
+    while show_screen["pic"]:
+        pass
+
     # Load the player and opponent images
-    player_image = pygame.image.load(player_image_path).convert_alpha()
-    opponent_image = pygame.image.load(opponent_image_path).convert_alpha()
+    or_player_image = pygame.image.load("left_frame.jpg").convert_alpha()
+    or_opponent_image = pygame.image.load("right_frame.jpg").convert_alpha()
     players_width, players_height = 200 * proportion, 100 * proportion
 
     # Resize the images to the appropriate size
-    player_image = pygame.transform.scale(player_image, (players_width, players_height))
-    opponent_image = pygame.transform.scale(opponent_image, (players_width, players_height))
+    player_image = pygame.transform.scale(or_player_image, (players_width, players_height))
+    player_image_for_win = pygame.transform.scale(or_player_image, (int(600 * proportion), int(600 * proportion * (or_player_image.get_height()/or_player_image.get_width()))))
+    opponent_image = pygame.transform.scale(or_opponent_image, (players_width, players_height))
+    opponent_image_for_win = pygame.transform.scale(or_opponent_image, (int(600 * proportion), int(600 * proportion * (or_opponent_image.get_height()/or_opponent_image.get_width()))))
 
     # Load the player and opponent images
     player = pygame.Rect(0, 0, players_width, players_height)
@@ -47,9 +83,6 @@ def game(player_image_path, opponent_image_path, keys, show_screen, player_name,
     ball.center = (WIDTH / 2, HEIGHT / 2)
     x_speed, y_speed = 0.8, 0.8
 
-    FONT = pygame.font.SysFont("Consolas", int(WIDTH / 20))
-    LARGE_FONT = pygame.font.SysFont("Consolas", int(WIDTH / 10))
-    CLOCK = pygame.time.Clock()
     go_text = LARGE_FONT.render("GO!", True, "black")
     counting_text = [LARGE_FONT.render(str(i), True, "black") for i in range(3, 0, -1)]
     for num in counting_text:
@@ -107,12 +140,25 @@ def game(player_image_path, opponent_image_path, keys, show_screen, player_name,
             ball.center = (WIDTH / 2, HEIGHT / 2)
             x_speed, y_speed = random.choice([x_speed, -1 * x_speed]), random.choice([y_speed, -1 * y_speed])
         if player_score == 3 or opponent_score == 3:
-    
+            # Delete the old ball and paddles from screen
+            SCREEN.blit(background, (0, 0))
+
+
+            player_score_text = FONT.render(str(player_score), True, "black")
+            opponent_score_text = FONT.render(str(opponent_score), True, "black")
+            SCREEN.blit(opponent_score_text, (WIDTH / 2 + 50 * proportion, 50 * proportion))
+            SCREEN.blit(player_score_text, (WIDTH / 2 - 80 * proportion, 50 * proportion))
+
+            pygame.display.update()
+            CLOCK.tick(100)
+
             if player_score == 3:
-               winner_text = LARGE_FONT.render(player_name +" win!", True, "black")
+                winner_text = LARGE_FONT.render(player_name + " win!", True, "black")
+                SCREEN.blit(player_image_for_win, (WIDTH / 2 - player_image_for_win.get_width() / 2, HEIGHT / 2 - player_image_for_win.get_height() / 2))
             else:
                 winner_text = LARGE_FONT.render(opponent_name + " win!", True, "black")
-            SCREEN.blit(winner_text, (WIDTH / 2 - winner_text.get_width() / 2, HEIGHT / 2 - winner_text.get_height() / 2))
+                SCREEN.blit(opponent_image_for_win, (WIDTH / 2 - opponent_image_for_win.get_width() / 2, HEIGHT / 2 - opponent_image_for_win.get_height() / 2))
+            SCREEN.blit(winner_text, (WIDTH / 2 - winner_text.get_width() / 2, HEIGHT / 4 - winner_text.get_height() / 2))
             pygame.display.update()
             pygame.time.delay(3000)
             break
@@ -141,8 +187,8 @@ def game(player_image_path, opponent_image_path, keys, show_screen, player_name,
         pygame.draw.circle(SCREEN, "white", ball.center, 10)
 
         # Show thw players score
-        SCREEN.blit(player_score_text, (WIDTH / 2 + 50 * proportion, 50 * proportion))
-        SCREEN.blit(opponent_score_text, (WIDTH / 2 - 80 * proportion, 50 * proportion))
+        SCREEN.blit(opponent_score_text, (WIDTH / 2 + 50 * proportion, 50 * proportion))
+        SCREEN.blit(player_score_text, (WIDTH / 2 - 80 * proportion, 50 * proportion))
 
         pygame.display.update()
         CLOCK.tick(100)
