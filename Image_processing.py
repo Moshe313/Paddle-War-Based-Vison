@@ -2,6 +2,7 @@ from screeninfo import get_monitors
 import cv2
 import numpy as np
 
+
 def keys_detection(keys, show_screen):
     cap = cv2.VideoCapture(0)  # Open the camera
 
@@ -85,6 +86,50 @@ def keys_detection(keys, show_screen):
         left_frame = frame[:, :mid_x]  # Left half
         right_frame = frame[:, mid_x:]  # Right half
 
+        if show_screen["pic"]:
+            left_hand = cv2.imread('left_hand.png')
+            right_hand = cv2.imread('right_hand.png')
+
+            # Get the height of the right_frame
+            target_height = right_frame.shape[0]
+
+            # Calculate the scaling factor to match the target height
+            l_scaling_factor = target_height / left_hand.shape[0]
+            r_scaling_factor = target_height / right_hand.shape[0]
+
+            # Calculate the new dimensions for 'hand' while keeping aspect ratio
+            l_new_width = int(left_hand.shape[1] * l_scaling_factor)
+            l_new_size = (l_new_width, target_height)
+
+            # Calculate the new dimensions for 'hand' while keeping aspect ratio
+            r_new_width = int(right_hand.shape[1] * r_scaling_factor)
+            r_new_size = (r_new_width, target_height)
+
+            # Resize 'hand' to the new dimensions
+            l_resized_hand = cv2.resize(left_hand, l_new_size, interpolation=cv2.INTER_LINEAR)
+            # Resize 'hand' to the new dimensions
+            r_resized_hand = cv2.resize(right_hand, r_new_size, interpolation=cv2.INTER_LINEAR)
+
+            # Concatenate the images horizontally
+            r_combined_image = np.hstack((right_frame, r_resized_hand))
+            # Concatenate the images horizontally
+            r_combined_image = np.hstack((l_resized_hand, r_combined_image))
+
+            # Concatenate the images horizontally
+            l_combined_image = np.hstack((left_frame, r_resized_hand))
+            # Concatenate the images horizontally
+            l_combined_image = np.hstack((l_resized_hand, l_combined_image))
+
+
+            # Save the left frame
+            cv2.imwrite('left_frame.jpg', l_combined_image)
+            print("Left frame saved as 'left_frame.jpg'")
+
+            # Save the right frame
+            cv2.imwrite('right_frame.jpg', r_combined_image)
+            print("Right frame saved as 'right_frame.jpg'")
+            show_screen["pic"] = False
+
         # Resize the frame for faster processing
         small_frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
         small_gray_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
@@ -127,6 +172,7 @@ def keys_detection(keys, show_screen):
         cv2.moveWindow('Right Half - Hand Detection', int((3*screen_width - show_screen["game_width"] - X*0.6)/4), int((screen_height - Y)/2))
 
         # Update the shared state to indicate the camera is visible
+        show_screen["video_prepared"] = True
         show_screen["show_screen"] = True
 
         # Exit the loop if 'q' is pressed
