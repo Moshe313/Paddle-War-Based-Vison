@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox
+from tkinter import PhotoImage
 from Game import game
 import threading
 from Image_processing import keys_detection
@@ -33,16 +34,21 @@ def on_quit():
     root.destroy()
 
 def restart_gui():
-    global root, player_name_entry, opponent_name_entry, start_button, quit_button
+    global root, player_name_entry, opponent_name_entry, start_button, quit_button, background_label
     root = tk.Tk()
     root.title("Tennis Game")
 
+    # Load the background image
+    background_image = PhotoImage(file="background.png")
+    background_label = tk.Label(root, image=background_image)
+    background_label.place(relwidth=1, relheight=1)
+
     # Create and place the labels and entry widgets
-    tk.Label(root, text="Top/Right Player's Name:").grid(row=0, column=0, padx=10, pady=10)
+    tk.Label(root, text="Top/Right Player's Name:", bg="white").grid(row=0, column=0, padx=10, pady=10)
     player_name_entry = tk.Entry(root)
     player_name_entry.grid(row=0, column=1, padx=10, pady=10)
 
-    tk.Label(root, text="Bottom/Left Player's Name:").grid(row=1, column=0, padx=10, pady=10)
+    tk.Label(root, text="Bottom/Left Player's Name:", bg="white").grid(row=1, column=0, padx=10, pady=10)
     opponent_name_entry = tk.Entry(root)
     opponent_name_entry.grid(row=1, column=1, padx=10, pady=10)
 
