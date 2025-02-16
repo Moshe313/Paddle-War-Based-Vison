@@ -4,6 +4,7 @@ from tkinter import PhotoImage
 from Game import game
 import threading
 from Image_processing import keys_detection
+import pygame
 
 # Global Variables
 keys = {"player left": False, "player right": False, "opponent left": False, "opponent right": False}
@@ -19,8 +20,8 @@ def start_game(player_name, opponent_name):
     # Run the game
     game("player.png", "opponent.png", keys, show_screen, player_name, opponent_name)
 
-    # Destroy the game window after the game ends
-    root.destroy()
+    # Close the game window after the game ends
+    pygame.quit()
     
     # Restart the GUI after the game ends
     restart_gui()
