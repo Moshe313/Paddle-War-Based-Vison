@@ -2,194 +2,212 @@ import pygame
 import sys
 import random
 import os
+import cv2  # needed for converting camera frames
 from screeninfo import get_monitors
 
+def update_display(SCREEN, game_surface, cam_width, game_width, game_height, show_screen):
+    # Clear main screen
+    SCREEN.fill((0, 0, 0))
+    # Left camera panel
+    if "left_cam" in show_screen and show_screen["left_cam"] is not None:
+        left_frame = show_screen["left_cam"]
+        left_frame_rgb = cv2.cvtColor(left_frame, cv2.COLOR_BGR2RGB)
+        left_surface = pygame.image.frombuffer(left_frame_rgb.tobytes(), (left_frame_rgb.shape[1], left_frame_rgb.shape[0]), "RGB")
+        left_surface = pygame.transform.scale(left_surface, (cam_width, game_height))
+        SCREEN.blit(left_surface, (0, 0))
+    else:
+        pygame.draw.rect(SCREEN, (100, 100, 100), (0, 0, cam_width, game_height))
+    # Center game area
+    SCREEN.blit(game_surface, (cam_width, 0))
+    # Right camera panel
+    if "right_cam" in show_screen and show_screen["right_cam"] is not None:
+        right_frame = show_screen["right_cam"]
+        right_frame_rgb = cv2.cvtColor(right_frame, cv2.COLOR_BGR2RGB)
+        right_surface = pygame.image.frombuffer(right_frame_rgb.tobytes(), (right_frame_rgb.shape[1], right_frame_rgb.shape[0]), "RGB")
+        right_surface = pygame.transform.scale(right_surface, (cam_width, game_height))
+        SCREEN.blit(right_surface, (cam_width + game_width, 0))
+    else:
+        pygame.draw.rect(SCREEN, (100, 100, 100), (cam_width + game_width, 0, cam_width, game_height))
+    pygame.display.update()
 
 def game(player_image_path, opponent_image_path, keys, show_screen, player_name, opponent_name):
-    # Initialize Pygame
-    while not show_screen["video_prepared"]:
-        pass
-    pygame.time.delay(500)  # 500 milliseconds
+    starting_speed = 0.8
+    # Initialize Pygame and define sizes
     pygame.init()
-
-    # Define screen size and background
     proportion = 0.6
-    WIDTH, HEIGHT = 720 * proportion, 1280 * proportion   #720,1280
+    game_width = int(720 * proportion)
+    game_height = int(1280 * proportion)
+    # Define camera panel width (for left and right feeds)
+    cam_width = int(game_width)
+    total_width = game_width + 2 * cam_width
 
-    monitor = get_monitors()[0]  # Use the primary monitor
+    monitor = get_monitors()[0]
     screen_width = monitor.width
     screen_height = monitor.height
-    os.environ['SDL_VIDEO_WINDOW_POS'] = f"{int((screen_width - WIDTH)/2)},{int((screen_height - HEIGHT)/2)}"
+    os.environ['SDL_VIDEO_WINDOW_POS'] = f"{int((screen_width - total_width)/2)},{int((screen_height - game_height)/2)}"
+    # Update shared state (if needed elsewhere)
+    show_screen["game_width"] = game_width
 
-    show_screen["game_width"] = WIDTH
-    SCREEN = pygame.display.set_mode((WIDTH, HEIGHT))  # This must be done before convert_alpha()
-    background = pygame.transform.scale(pygame.image.load("background.png").convert(), (WIDTH, HEIGHT))
-    SCREEN.blit(background, (0, 0))
+    # Create main display with three panels: left cam, game, right cam
+    SCREEN = pygame.display.set_mode((total_width, game_height))
     pygame.display.set_caption("Hand Movement Game")
 
+    # Load and scale the background for the game area only
+    background = pygame.transform.scale(pygame.image.load("background.png").convert(), (game_width, game_height))
+    # Create a separate surface for the game area (center panel)
+    game_surface = pygame.Surface((game_width, game_height))
+    game_surface.blit(background, (0, 0))
 
-    FONT = pygame.font.SysFont("Consolas", int(WIDTH / 20))
-    LARGE_FONT = pygame.font.SysFont("Consolas", int(WIDTH / 15))
+    FONT = pygame.font.SysFont("Consolas", int(game_width / 20))
+    LARGE_FONT = pygame.font.SysFont("Consolas", int(game_width / 15))
     CLOCK = pygame.time.Clock()
 
+    # Display initial text (on the game area)
     pic_text = LARGE_FONT.render("Be ready for picture!", True, "black")
-    LARGE_FONT = pygame.font.SysFont("Consolas", int(WIDTH / 10))
-    say_cheese = LARGE_FONT.render("Say Cheese!", True, "black")
-    counting_text = [LARGE_FONT.render(str(i), True, "black") for i in range(3, 0, -1)]
-    SCREEN.blit(pic_text, (WIDTH / 2 - pic_text.get_width() / 2, HEIGHT / 2 - pic_text.get_height() / 2))
+    game_surface.blit(pic_text, (game_width/2 - pic_text.get_width()/2, game_height/2 - pic_text.get_height()/2))
+    update_display(SCREEN, game_surface, cam_width, game_width, game_height, show_screen)
     pygame.display.update()
-    pygame.time.delay(1000)  # 500 milliseconds
-    for num in counting_text:
-        SCREEN.blit(background, (0, 0))
+    pygame.time.delay(1000)
+
+    # Countdown before picture capture
+    for num in [3, 2, 1]:
+        game_surface.blit(background, (0, 0))
+        # Wait until the camera thread is showing video
         while not show_screen["show_screen"]:
             pass
-        SCREEN.blit(num, (WIDTH / 2 - num.get_width() / 2, HEIGHT / 2 - num.get_height() / 2))
-        pygame.display.update()
+        num_text = LARGE_FONT.render(str(num), True, "black")
+        game_surface.blit(num_text, (game_width/2 - num_text.get_width()/2, game_height/2 - num_text.get_height()/2))
+        update_display(SCREEN, game_surface, cam_width, game_width, game_height, show_screen)
         pygame.time.delay(500)
-    SCREEN.blit(background, (0, 0))
+    game_surface.blit(background, (0, 0))
     pygame.display.update()
-    pygame.time.delay(500)  # 500 milliseconds
-    SCREEN.blit(say_cheese, (WIDTH / 2 - pic_text.get_width() / 2, HEIGHT / 2 - pic_text.get_height() / 2))
-    pygame.display.update()
-    pygame.time.delay(1000)  # 500 milliseconds
+    pygame.time.delay(500)
+    say_cheese = LARGE_FONT.render("Say Cheese!", True, "black")
+    game_surface.blit(say_cheese, (game_width/2 - say_cheese.get_width()/2, game_height/2 - say_cheese.get_height()/2))
+    update_display(SCREEN, game_surface, cam_width, game_width, game_height, show_screen)
+    pygame.time.delay(1000)
 
+    # Signal picture capture (the camera thread will save frames and reset show_screen["pic"])
     show_screen["pic"] = True
-
     while show_screen["pic"]:
-        pass
+        update_display(SCREEN, game_surface, cam_width, game_width, game_height, show_screen)
+        CLOCK.tick(30)
 
-    # Load the player and opponent images
+    # Load the saved camera images for paddles (as before)
     or_player_image = pygame.image.load("left_frame.jpg").convert_alpha()
     or_opponent_image = pygame.image.load("right_frame.jpg").convert_alpha()
-    players_width, players_height = 200 * proportion, 100 * proportion
-
-    # Resize the images to the appropriate size
+    players_width, players_height = int(200 * proportion), int(100 * proportion)
     player_image = pygame.transform.scale(or_player_image, (players_width, players_height))
-    player_image_for_win = pygame.transform.scale(or_player_image, (int(600 * proportion), int(600 * proportion * (or_player_image.get_height()/or_player_image.get_width()))))
+    player_image_for_win = pygame.transform.scale(
+        or_player_image, (int(600 * proportion), int(600 * proportion * (or_player_image.get_height() / or_player_image.get_width())))
+    )
     opponent_image = pygame.transform.scale(or_opponent_image, (players_width, players_height))
-    opponent_image_for_win = pygame.transform.scale(or_opponent_image, (int(600 * proportion), int(600 * proportion * (or_opponent_image.get_height()/or_opponent_image.get_width()))))
+    opponent_image_for_win = pygame.transform.scale(
+        or_opponent_image, (int(600 * proportion), int(600 * proportion * (or_opponent_image.get_height() / or_opponent_image.get_width())))
+    )
 
-    # Load the player and opponent images
+    # Create paddle rectangles on the game_surface (coordinates relative to game_surface)
     player = pygame.Rect(0, 0, players_width, players_height)
-    player.center = (WIDTH / 2, HEIGHT - 100)
+    player.center = (game_width / 2, game_height - 100)
     opponent = pygame.Rect(0, 0, players_width, players_height)
-    opponent.center = (WIDTH / 2, 100)
+    opponent.center = (game_width / 2, 100)
 
-    # Score reset
+    # Score and ball initialization
     player_score, opponent_score = 0, 0
-
-    # Ball
     ball = pygame.Rect(0, 0, 20, 20)
-    ball.center = (WIDTH / 2, HEIGHT / 2)
-    x_speed, y_speed = 0.8, 0.8
+    ball.center = (game_width / 2, game_height / 2)
+    x_speed, y_speed = starting_speed, starting_speed
 
     go_text = LARGE_FONT.render("GO!", True, "black")
-    counting_text = [LARGE_FONT.render(str(i), True, "black") for i in range(3, 0, -1)]
-    for num in counting_text:
-        SCREEN.blit(background, (0, 0))
+    for num in [3, 2, 1]:
+        game_surface.blit(background, (0, 0))
         while not show_screen["show_screen"]:
             pass
-        SCREEN.blit(num, (WIDTH / 2 - num.get_width() / 2, HEIGHT / 2 - num.get_height() / 2))
-        pygame.display.update()
+        num_text = LARGE_FONT.render(str(num), True, "black")
+        game_surface.blit(num_text, (game_width/2 - num_text.get_width()/2, game_height/2 - num_text.get_height()/2))
+        update_display(SCREEN, game_surface, cam_width, game_width, game_height, show_screen)
         pygame.time.delay(500)
-    SCREEN.blit(background, (0, 0))
-    SCREEN.blit(go_text, (WIDTH / 2 - go_text.get_width() / 2, HEIGHT / 2 - go_text.get_height() / 2))
-    pygame.display.update()
-    pygame.time.delay(500)  # 500 milliseconds
+    game_surface.blit(background, (0, 0))
+    game_surface.blit(go_text, (game_width/2 - go_text.get_width()/2, game_height/2 - go_text.get_height()/2))
+    update_display(SCREEN, game_surface, cam_width, game_width, game_height, show_screen)
+    pygame.time.delay(500)
 
+    # Main game loop
     while True:
-        # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
 
-        # Update player position based on hand movement
+        # Update paddle positions based on the keys updated by the detection thread
         if keys["player right"]:
-            if player.right < WIDTH:
+            if player.right < game_width:
                 player.right += 8
         if keys["player left"]:
             if player.left > 0:
                 player.left -= 8
-
-        # Opponent:
         if keys["opponent right"]:
-            if opponent.right < WIDTH:
+            if opponent.right < game_width:
                 opponent.right += 8
         if keys["opponent left"]:
             if opponent.left > 0:
                 opponent.left -= 8
 
-        # Right and left limits
-        if ball.x >= WIDTH:
-            x_speed = -1 * abs(x_speed)
+        # Ball boundary logic
+        if ball.x >= game_width:
+            x_speed = -abs(x_speed)
         if ball.x <= 0:
             x_speed = abs(x_speed)
-
-        # Raise score while the ball didn't touch the player paddle and start over
         if ball.y <= 0:
             player_score += 1
-            x_speed *= 1.1
-            y_speed *= 1.1
-            ball.center = (WIDTH / 2, HEIGHT / 2)
-            x_speed, y_speed = random.choice([x_speed, -1 * x_speed]), random.choice([y_speed, -1 * y_speed])
-        if ball.y >= HEIGHT:
+            x_speed = 1.1 * starting_speed
+            y_speed = 1.1 * starting_speed
+            ball.center = (game_width / 2, game_height / 2)
+            x_speed, y_speed = random.choice([x_speed, -x_speed]), random.choice([y_speed, -y_speed])
+        if ball.y >= game_height:
             opponent_score += 1
-            x_speed *= 1.1
-            y_speed *= 1.1
-            ball.center = (WIDTH / 2, HEIGHT / 2)
-            x_speed, y_speed = random.choice([x_speed, -1 * x_speed]), random.choice([y_speed, -1 * y_speed])
+            x_speed = 1.1 * starting_speed
+            y_speed = 1.1 * starting_speed
+            ball.center = (game_width / 2, game_height / 2)
+            x_speed, y_speed = random.choice([x_speed, -x_speed]), random.choice([y_speed, -y_speed])
         if player_score == 3 or opponent_score == 3:
-            # Delete the old ball and paddles from screen
-            SCREEN.blit(background, (0, 0))
-
-
+            game_surface.blit(background, (0, 0))
             player_score_text = FONT.render(str(player_score), True, "black")
             opponent_score_text = FONT.render(str(opponent_score), True, "black")
-            SCREEN.blit(opponent_score_text, (WIDTH / 2 + 50 * proportion, 50 * proportion))
-            SCREEN.blit(player_score_text, (WIDTH / 2 - 80 * proportion, 50 * proportion))
-
-            pygame.display.update()
+            game_surface.blit(opponent_score_text, (game_width / 2 + 50 * proportion, 50 * proportion))
+            game_surface.blit(player_score_text, (game_width / 2 - 80 * proportion, 50 * proportion))
+            update_display(SCREEN, game_surface, cam_width, game_width, game_height, show_screen)
             CLOCK.tick(100)
-
             if player_score == 3:
                 winner_text = LARGE_FONT.render(player_name + " win!", True, "black")
-                SCREEN.blit(player_image_for_win, (WIDTH / 2 - player_image_for_win.get_width() / 2, HEIGHT / 2 - player_image_for_win.get_height() / 2))
+                game_surface.blit(player_image_for_win, (game_width / 2 - player_image_for_win.get_width() / 2, game_height / 2 - player_image_for_win.get_height() / 2))
             else:
                 winner_text = LARGE_FONT.render(opponent_name + " win!", True, "black")
-                SCREEN.blit(opponent_image_for_win, (WIDTH / 2 - opponent_image_for_win.get_width() / 2, HEIGHT / 2 - opponent_image_for_win.get_height() / 2))
-            SCREEN.blit(winner_text, (WIDTH / 2 - winner_text.get_width() / 2, HEIGHT / 4 - winner_text.get_height() / 2))
-            pygame.display.update()
+                game_surface.blit(opponent_image_for_win, (game_width / 2 - opponent_image_for_win.get_width() / 2, game_height / 2 - opponent_image_for_win.get_height() / 2))
+            game_surface.blit(winner_text, (game_width / 2 - winner_text.get_width() / 2, game_height / 4 - winner_text.get_height() / 2))
+            update_display(SCREEN, game_surface, cam_width, game_width, game_height, show_screen)
             pygame.time.delay(3000)
             break
-        # Change the ball direction when touch the player paddle
-        if player.y - ball.height <= ball.y <= player.bottom and ball.x in range(player.left - ball.height,
-                                                                                 player.right + ball.height):
-            y_speed = -1 * abs(y_speed)
-        if opponent.y - ball.height <= ball.y <= opponent.bottom and ball.x in range(opponent.left - ball.height,
-                                                                                     opponent.right + ball.height):
-            y_speed = 1 * abs(y_speed)
 
-        # Convert the score to pygame string
+        # Paddle collision detection
+        if (player.y - ball.height) <= ball.y <= player.bottom and ball.x in range(player.left - ball.height, player.right + ball.height):
+            y_speed = -abs(y_speed)
+            
+        if opponent.y - ball.height <= ball.y <= opponent.bottom and ball.x in range(opponent.left - ball.height, opponent.right + ball.height):
+            y_speed = abs(y_speed)
+        
+        # Update scores and ball movement
         player_score_text = FONT.render(str(player_score), True, "black")
         opponent_score_text = FONT.render(str(opponent_score), True, "black")
-
-        # Advance the ball
         ball.x += x_speed * 2
         ball.y += y_speed * 2
 
-        # Delete the old ball and paddles from screen
-        SCREEN.blit(background, (0, 0))
-    
-        # Draw the images in the new positions
-        SCREEN.blit(player_image, player.topleft)
-        SCREEN.blit(opponent_image, opponent.topleft)
-        pygame.draw.circle(SCREEN, "white", ball.center, 10)
+        game_surface.blit(background, (0, 0))
+        game_surface.blit(player_image, player.topleft)
+        game_surface.blit(opponent_image, opponent.topleft)
+        pygame.draw.circle(game_surface, "white", ball.center, 10)
+        game_surface.blit(opponent_score_text, (game_width / 2 + 50 * proportion, 50 * proportion))
+        game_surface.blit(player_score_text, (game_width / 2 - 80 * proportion, 50 * proportion))
 
-        # Show thw players score
-        SCREEN.blit(opponent_score_text, (WIDTH / 2 + 50 * proportion, 50 * proportion))
-        SCREEN.blit(player_score_text, (WIDTH / 2 - 80 * proportion, 50 * proportion))
-
-        pygame.display.update()
+        update_display(SCREEN, game_surface, cam_width, game_width, game_height, show_screen)
         CLOCK.tick(100)
-

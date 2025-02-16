@@ -1,184 +1,117 @@
-from screeninfo import get_monitors
 import cv2
 import numpy as np
-
+from screeninfo import get_monitors
 
 def keys_detection(keys, show_screen):
     cap = cv2.VideoCapture(0)  # Open the camera
 
-    # Set the resolution of the camera
+    # Set the resolution and adjust width (three times wider for splitting later)
     original_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     original_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    # Double the width while keeping the original height
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, original_width * 3) #change *2 to *4
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, original_width * 3)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, original_height)
-
-    # Print the new resolution for debugging
     new_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     new_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"Camera resolution set to: {new_width}x{new_height}")
 
-    prev_gray = None
-    _, frame_test = cap.read()
-    Y, X, _ = frame_test.shape  # Get the frame dimensions
+    ret, frame_test = cap.read()
+    if not ret:
+        print("Failed to read from camera.")
+        return
+    Y, X, _ = frame_test.shape  # Dimensions of the frame
 
-    # Player
-    # Define regions of interest (ROI) for hand detection
-    roi_player_width = int(X * 0.15)  # Width of ROI = 15% of the total width
-    roi_player_height = int(Y * 0.6)  # Height of ROI = 60% of the total height
-    roi_player_top = int(Y * 0.2)  # Distance from the top = 20% of the total height
+    # Define regions of interest (ROI) for hand detection for the player and opponent
+    roi_player_width = int(X * 0.15)
+    roi_player_height = int(Y * 0.6)
+    roi_player_top = int(Y * 0.2)
+    right_player_hand_roi = (int(X * 0.3), roi_player_top, roi_player_width, roi_player_height)
+    left_player_hand_roi = (int(X * 0.05), roi_player_top, roi_player_width, roi_player_height)
 
-    # Right-hand ROI
-    right_player_hand_roi = (
-        int(X * 0.3),  # Start 30% of the way from the left
-        roi_player_top,       # Top position
-        roi_player_width,     # Width
-        roi_player_height     # Height
-    )
+    roi_opponent_width = int(X * 0.15)
+    roi_opponent_height = int(Y * 0.6)
+    roi_opponent_top = int(Y * 0.2)
+    right_opponent_hand_roi = (int(X * 0.8), roi_opponent_top, roi_opponent_width, roi_opponent_height)
+    left_opponent_hand_roi = (int(X * 0.55), roi_opponent_top, roi_opponent_width, roi_opponent_height)
 
-    # Left-hand ROI
-    left_player_hand_roi = (
-        int(X * 0.05),  # Start 5% of the way from the left
-        roi_player_top,       # Top position
-        roi_player_width,     # Width
-        roi_player_height     # Height
-    )
-
-    # Opponent
-    # Define regions of interest (ROI) for hand detection
-    roi_Opponent_width = int(X * 0.15)  # Width of ROI = 15% of the total width
-    roi_Opponent_height = int(Y * 0.6)  # Height of ROI = 60% of the total height
-    roi_Opponent_top = int(Y * 0.2)  # Distance from the top = 20% of the total height
-
-    # Right-hand ROI
-    right_Opponent_hand_roi = (
-        int(X * 0.8),  # Start 80% of the way from the left
-        roi_Opponent_top,       # Top position
-        roi_Opponent_width,     # Width
-        roi_Opponent_height     # Height
-    )
-
-    # Left-hand ROI
-    left_Opponent_hand_roi = (
-        int(X * 0.55),  # Start 55% of the way from the left
-        roi_Opponent_top,       # Top position
-        roi_Opponent_width,     # Width
-        roi_Opponent_height     # Height
-    )
-
-    monitor = get_monitors()[0]  # Use the primary monitor
+    monitor = get_monitors()[0]
     screen_width = monitor.width
     screen_height = monitor.height
 
-    scale = 0.25  # Downscaling factor to reduce frame size and processing load
+    scale = 0.25  # Downscale factor for processing
 
+    # Initialize shared keys for camera frames (so the game can access them)
+    show_screen["left_cam"] = None
+    show_screen["right_cam"] = None
+
+    prev_gray = None
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Flip the frame horizontally for a mirror effect
+        # Mirror the frame horizontally
         frame = cv2.flip(frame, 1)
-
-        # Split the frame into two halves
         mid_x = frame.shape[1] // 2
-        left_frame = frame[:, :mid_x]  # Left half
-        right_frame = frame[:, mid_x:]  # Right half
+        left_frame = frame[:, :mid_x]
+        right_frame = frame[:, mid_x:]
 
+        # When it's time to capture the picture, combine hand images with each half
         if show_screen["pic"]:
             left_hand = cv2.imread('left_hand.png')
             right_hand = cv2.imread('right_hand.png')
-
-            # Get the height of the right_frame
             target_height = right_frame.shape[0]
-
-            # Calculate the scaling factor to match the target height
             l_scaling_factor = target_height / left_hand.shape[0]
             r_scaling_factor = target_height / right_hand.shape[0]
-
-            # Calculate the new dimensions for 'hand' while keeping aspect ratio
             l_new_width = int(left_hand.shape[1] * l_scaling_factor)
-            l_new_size = (l_new_width, target_height)
-
-            # Calculate the new dimensions for 'hand' while keeping aspect ratio
             r_new_width = int(right_hand.shape[1] * r_scaling_factor)
-            r_new_size = (r_new_width, target_height)
-
-            # Resize 'hand' to the new dimensions
-            l_resized_hand = cv2.resize(left_hand, l_new_size, interpolation=cv2.INTER_LINEAR)
-            # Resize 'hand' to the new dimensions
-            r_resized_hand = cv2.resize(right_hand, r_new_size, interpolation=cv2.INTER_LINEAR)
-
-            # Concatenate the images horizontally
+            l_resized_hand = cv2.resize(left_hand, (l_new_width, target_height), interpolation=cv2.INTER_LINEAR)
+            r_resized_hand = cv2.resize(right_hand, (r_new_width, target_height), interpolation=cv2.INTER_LINEAR)
+            # Concatenate to form combined images for saving
+            l_combined_image = np.hstack((l_resized_hand, left_frame))
             r_combined_image = np.hstack((right_frame, r_resized_hand))
-            # Concatenate the images horizontally
-            r_combined_image = np.hstack((l_resized_hand, r_combined_image))
-
-            # Concatenate the images horizontally
-            l_combined_image = np.hstack((left_frame, r_resized_hand))
-            # Concatenate the images horizontally
-            l_combined_image = np.hstack((l_resized_hand, l_combined_image))
-
-
-            # Save the left frame
             cv2.imwrite('left_frame.jpg', l_combined_image)
             print("Left frame saved as 'left_frame.jpg'")
-
-            # Save the right frame
             cv2.imwrite('right_frame.jpg', r_combined_image)
             print("Right frame saved as 'right_frame.jpg'")
             show_screen["pic"] = False
 
-        # Resize the frame for faster processing
+        # Downscale and convert to grayscale for optical flow
         small_frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
         small_gray_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
-
-        # Initialize the previous frame if it's the first iteration
         if prev_gray is None:
             prev_gray = small_gray_frame
             continue
-
-        # Calculate optical flow between the previous and current frames
         flow = cv2.calcOpticalFlowFarneback(prev_gray, small_gray_frame, None, 0.5, 2, 9, 2, 5, 1.2, 0)
 
-        # Detect right hand movement
+        # Update keys for hand detection (player and opponent)
         x, y, w, h = int(right_player_hand_roi[0] * scale), int(right_player_hand_roi[1] * scale), int(right_player_hand_roi[2] * scale), int(right_player_hand_roi[3] * scale)
-        right_flow_y = flow[y:y + h, x:x + w, 1]  # Movement along the Y-axis
-        keys["player right"] = np.mean(right_flow_y) < -2  # Check upward motion
+        right_flow_y = flow[y:y+h, x:x+w, 1]
+        keys["player right"] = np.mean(right_flow_y) < -2
 
-        # Detect left hand movement
         x, y, w, h = int(left_player_hand_roi[0] * scale), int(left_player_hand_roi[1] * scale), int(left_player_hand_roi[2] * scale), int(left_player_hand_roi[3] * scale)
-        left_flow_y = flow[y:y + h, x:x + w, 1]  # Movement along the Y-axis
-        keys["player left"] = np.mean(left_flow_y) < -2  # Check upward motion
+        left_flow_y = flow[y:y+h, x:x+w, 1]
+        keys["player left"] = np.mean(left_flow_y) < -2
 
-        # Detect right hand movement
-        x, y, w, h = int(right_Opponent_hand_roi[0] * scale), int(right_Opponent_hand_roi[1] * scale), int(right_Opponent_hand_roi[2] * scale), int(right_Opponent_hand_roi[3] * scale)
-        right_flow_y = flow[y:y + h, x:x + w, 1]  # Movement along the Y-axis
-        keys["opponent right"] = np.mean(right_flow_y) < -2  # Check upward motion
+        x, y, w, h = int(right_opponent_hand_roi[0] * scale), int(right_opponent_hand_roi[1] * scale), int(right_opponent_hand_roi[2] * scale), int(right_opponent_hand_roi[3] * scale)
+        right_flow_y = flow[y:y+h, x:x+w, 1]
+        keys["opponent right"] = np.mean(right_flow_y) < -2
 
-        # Detect left hand movement
-        x, y, w, h = int(left_Opponent_hand_roi[0] * scale), int(left_Opponent_hand_roi[1] * scale), int(left_Opponent_hand_roi[2] * scale), int(left_Opponent_hand_roi[3] * scale)
-        left_flow_y = flow[y:y + h, x:x + w, 1]  # Movement along the Y-axis
-        keys["opponent left"] = np.mean(left_flow_y) < -2  # Check upward motion
+        x, y, w, h = int(left_opponent_hand_roi[0] * scale), int(left_opponent_hand_roi[1] * scale), int(left_opponent_hand_roi[2] * scale), int(left_opponent_hand_roi[3] * scale)
+        left_flow_y = flow[y:y+h, x:x+w, 1]
+        keys["opponent left"] = np.mean(left_flow_y) < -2
 
-        # Update the previous frame
         prev_gray = small_gray_frame
 
-        # Show the two halves of the frame in separate windows
-        cv2.imshow('Left Half - Hand Detection', left_frame)
-        cv2.moveWindow('Left Half - Hand Detection', int((screen_width - show_screen["game_width"] - X*0.6)/4), int((screen_height - Y)/2))
-        cv2.imshow('Right Half - Hand Detection', right_frame)
-        cv2.moveWindow('Right Half - Hand Detection', int((3*screen_width - show_screen["game_width"] - X*0.6)/4), int((screen_height - Y)/2))
-
-        # Update the shared state to indicate the camera is visible
+        # Instead of showing separate windows, update the shared state with the current frames
+        show_screen["left_cam"] = left_frame
+        show_screen["right_cam"] = right_frame
+        # Also flag that the video is ready and visible in the game window
         show_screen["video_prepared"] = True
         show_screen["show_screen"] = True
 
-        # Exit the loop if 'q' is pressed
+        # Allow a short wait (and a way to exit if needed)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     cap.release()
     cv2.destroyAllWindows()
-

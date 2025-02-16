@@ -5,7 +5,7 @@ from GUI import restart_gui
 
 # Global Variables
 keys = {"player left": False, "player right": False, "opponent left": False, "opponent right": False}
-show_screen = {"show_screen": False, "game_width": 550, "pic": False, "video_prepared": False}
+show_screen = {"show_screen": False, "game_width": 550, "pic": False, "video_prepared": False, "left_cam": None, "right_cam": None}
 
 # Prompt for player and opponent names
 player_name = input("Enter the player's name: ")

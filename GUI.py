@@ -19,6 +19,9 @@ def start_game(player_name, opponent_name):
     # Run the game
     game("player.png", "opponent.png", keys, show_screen, player_name, opponent_name)
 
+    # Destroy the game window after the game ends
+    root.destroy()
+    
     # Restart the GUI after the game ends
     restart_gui()
 
