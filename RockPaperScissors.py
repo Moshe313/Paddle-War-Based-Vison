@@ -3,58 +3,84 @@ import numpy as np
 import random
 import time
 
+# ====================================
+# Configuration Dictionary (Customize)
+# ====================================
+config = {
+    "window_name": "Rock Paper Scissors",
+    "window_size": (800, 600),            # (width, height) for the window (not the frame itself)
+    "player1_name": "Alice",
+    "player2_name": "Bob",
+    # ROIs are defined as (x1, y1, x2, y2) -- ROI is extracted as frame[y1:y2, x1:x2]
+    "roi1_coords": (50, 50, 250, 250),    # Player 1's ROI location
+    "roi2_coords": (300, 50, 500, 250),   # Player 2's ROI location
+    "countdown_duration": 3,              # Countdown in seconds
+    "result_display_time": 5,             # Time in seconds to display the result
+    "skin_lower": np.array([0, 100, 70], dtype=np.uint8),
+    "skin_upper": np.array([20, 255, 255], dtype=np.uint8),
+    "debug": True                       # Set to True to enable debug windows (shows processed ROI & mask)
+}
+
+# ====================================
+# Helper Functions
+# ====================================
 def decide_winner(gesture1, gesture2):
     """
-    Determines the winner based on two gestures.
-    Returns "Tie" if both gestures are equal.
+    Determines the winner based on the two gestures.
+    Returns "Tie" if both gestures are the same.
     Otherwise, applies the rules:
       - Rock beats Scissors
       - Scissors beats Paper
       - Paper beats Rock
     """
     rules = {"Rock": "Scissors", "Scissors": "Paper", "Paper": "Rock"}
-    if gesture1 == gesture2:
+    if gesture1 not in rules or gesture2 not in rules:
+        return "Unknown"
+    elif gesture1 == gesture2:
         return "Tie"
     elif rules.get(gesture1) == gesture2:
-        return "Player 1 wins!"
+        return f"{config['player1_name']} wins!"
     else:
-        return "Player 2 wins!"
+        return f"{config['player2_name']} wins!"
 
-def get_gesture(roi, debug=False, debug_window_name="Debug ROI"):
+def get_gesture(roi, debug=False, debug_window_name="Debug ROI", lower_skin=None, upper_skin=None):
     """
     Processes the provided ROI to detect the hand gesture.
     Returns one of "Rock", "Paper", "Scissors", or "Unknown".
-    If debug is True, overlays the detected gesture on the ROI and shows intermediate windows.
+    If debug is True, overlays the detected gesture on the ROI and displays intermediate windows.
     """
-    # Convert ROI to HSV and create a skin mask
+    if lower_skin is None:
+        lower_skin = config["skin_lower"]
+    if upper_skin is None:
+        upper_skin = config["skin_upper"]
+    
+    # Convert ROI to HSV and create a skin mask.
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    lower_skin = np.array([0, 100, 70], dtype=np.uint8)
-    upper_skin = np.array([20, 255, 255], dtype=np.uint8)
     mask = cv2.inRange(hsv, lower_skin, upper_skin)
 
-    # Apply morphological operations to remove noise
+    # Apply morphological operations to remove noise.
     kernel = np.ones((3, 3), np.uint8)
     mask = cv2.dilate(mask, kernel, iterations=4)
     mask = cv2.GaussianBlur(mask, (5, 5), 100)
 
-    # Find contours in the mask
+    # Find contours in the mask.
     contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Copy ROI for drawing debug information
+    # Copy ROI for drawing debug information.
     debug_roi = roi.copy()
     gesture = "Unknown"
 
     if contours:
-        # Assume the largest contour is the hand
+        # Assume the largest contour is the hand.
         max_contour = max(contours, key=cv2.contourArea)
         cv2.drawContours(debug_roi, [max_contour], -1, (0, 255, 0), 2)
 
-        # Approximate the contour for smoother edges
+        # Approximate the contour for smoother edges.
         epsilon = 0.0005 * cv2.arcLength(max_contour, True)
         approx = cv2.approxPolyDP(max_contour, epsilon, True)
         cv2.drawContours(debug_roi, [approx], -1, (0, 255, 255), 2)
 
-        # Find convex hull and convexity defects
+        # Find convex hull and convexity defects.
         hull = cv2.convexHull(approx, returnPoints=False)
         if hull is not None and len(hull) > 3:
             defects = cv2.convexityDefects(approx, hull)
@@ -67,7 +93,7 @@ def get_gesture(roi, debug=False, debug_window_name="Debug ROI"):
                     far = tuple(approx[f][0])
                     cv2.circle(debug_roi, far, 4, (0, 0, 255), -1)
                     
-                    # Calculate the angle using the cosine rule
+                    # Calculate the angle using the cosine rule.
                     a = np.linalg.norm(np.array(end) - np.array(start))
                     b = np.linalg.norm(np.array(far) - np.array(start))
                     c = np.linalg.norm(np.array(end) - np.array(far))
@@ -76,7 +102,7 @@ def get_gesture(roi, debug=False, debug_window_name="Debug ROI"):
                         if angle <= 90:
                             count_defects += 1
 
-            # Heuristics to decide the gesture based on the number of defects
+            # Use heuristics based on the number of defects.
             if count_defects == 0:
                 gesture = "Rock"
             elif count_defects == 1:
@@ -87,88 +113,110 @@ def get_gesture(roi, debug=False, debug_window_name="Debug ROI"):
                 gesture = "Unknown"
 
     if debug:
-        # Overlay the recognized gesture on the debug ROI
+        # Overlay the recognized gesture on the debug ROI.
         cv2.putText(debug_roi, f"Gesture: {gesture}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
         cv2.imshow(debug_window_name, debug_roi)
         cv2.imshow(debug_window_name + " Mask", mask)
     return gesture
 
-# Initialize video capture
-cap = cv2.VideoCapture(0)
-debug = True  # Enable debug mode to see extra debugging information
+# ====================================
+# Main Application
+# ====================================
+def main():
+    # Create a named window and set its size.
+    cv2.namedWindow(config["window_name"], cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(config["window_name"], config["window_size"][0], config["window_size"][1])
 
-# Variables to hold the result text and when to stop displaying it
-result_text = None
-result_end_time = 0
+    cap = cv2.VideoCapture(0)
+    result_text = None
+    result_end_time = 0
 
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-    # Flip the frame for a mirror effect
-    frame = cv2.flip(frame, 1)
+        frame = cv2.flip(frame, 1)
 
-    # Define two ROIs for the two players
-    # Player 1: Top-left ROI; Player 2: Top-right ROI
-    roi1 = frame[50:250, 50:250]
-    roi2 = frame[50:250, 300:500]
+        # Get ROIs for players using configuration coordinates.
+        x1, y1, x2, y2 = config["roi1_coords"]
+        roi1 = frame[y1:y2, x1:x2]
+        x1_p2, y1_p2, x2_p2, y2_p2 = config["roi2_coords"]
+        roi2 = frame[y1_p2:y2_p2, x1_p2:x2_p2]
 
-    # Draw rectangles around the ROIs on the main frame
-    cv2.rectangle(frame, (50, 50), (250, 250), (255, 0, 0), 2)   # Blue for Player 1
-    cv2.rectangle(frame, (300, 50), (500, 250), (0, 255, 0), 2)    # Green for Player 2
+        # Draw rectangles around the ROIs.
+        cv2.rectangle(frame, (config["roi1_coords"][0], config["roi1_coords"][1]),
+                             (config["roi1_coords"][2], config["roi1_coords"][3]), (255, 0, 0), 2)
+        cv2.rectangle(frame, (config["roi2_coords"][0], config["roi2_coords"][1]),
+                             (config["roi2_coords"][2], config["roi2_coords"][3]), (0, 255, 0), 2)
 
-    # In debug mode, show live gesture info on debug windows
-    if debug:
-        gesture1_live = get_gesture(roi1, debug=True, debug_window_name="Debug ROI 1")
-        gesture2_live = get_gesture(roi2, debug=True, debug_window_name="Debug ROI 2")
-        cv2.putText(frame, f"P1: {gesture1_live}", (50, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-        cv2.putText(frame, f"P2: {gesture2_live}", (300, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        # In debug mode, get live gesture info and display it.
+        if config["debug"]:
+            gesture1_live = get_gesture(roi1, debug=True, debug_window_name="Debug ROI 1")
+            gesture2_live = get_gesture(roi2, debug=True, debug_window_name="Debug ROI 2")
+            cv2.putText(frame, f"{config['player1_name']}: {gesture1_live}", 
+                        (config["roi1_coords"][0], config["roi1_coords"][1] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+            cv2.putText(frame, f"{config['player2_name']}: {gesture2_live}", 
+                        (config["roi2_coords"][0], config["roi2_coords"][1] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-    # If result_text is set and the display period hasn't expired, overlay it
-    if result_text is not None and time.time() < result_end_time:
-        cv2.putText(frame, result_text, (50, 300), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8, (0, 255, 255), 2)
-    else:
-        result_text = None
+        # Overlay result text if active.
+        # Use frame's actual height so the text is visible.
+        if result_text is not None and time.time() < result_end_time:
+            cv2.putText(frame, result_text, (50, frame.shape[0] - 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+        else:
+            result_text = None
 
-    cv2.imshow("Rock Paper Scissors", frame)
+        cv2.imshow(config["window_name"], frame)
 
-    key = cv2.waitKey(10) & 0xFF
-    if key == ord('g'):
-        # --- Countdown (without freezing the camera) ---
-        countdown_start = time.time()
-        countdown_duration = 3  # seconds for countdown
-        while time.time() - countdown_start < countdown_duration:
+        key = cv2.waitKey(10) & 0xFF
+        if key == ord('g'):
+            # --------------------------
+            # Countdown (Non-Blocking)
+            # --------------------------
+            countdown_start = time.time()
+            countdown_duration = config["countdown_duration"]
+            while time.time() - countdown_start < countdown_duration:
+                ret, frame = cap.read()
+                frame = cv2.flip(frame, 1)
+                elapsed = time.time() - countdown_start
+                countdown_number = int(countdown_duration - elapsed) + 1
+                cv2.putText(frame, str(countdown_number), 
+                            (frame.shape[1] // 2 - 50, frame.shape[0] // 2),
+                            cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 255), 5)
+                # Draw ROI rectangles during countdown.
+                cv2.rectangle(frame, (config["roi1_coords"][0], config["roi1_coords"][1]),
+                                     (config["roi1_coords"][2], config["roi1_coords"][3]), (255, 0, 0), 2)
+                cv2.rectangle(frame, (config["roi2_coords"][0], config["roi2_coords"][1]),
+                                     (config["roi2_coords"][2], config["roi2_coords"][3]), (0, 255, 0), 2)
+                cv2.imshow(config["window_name"], frame)
+                cv2.waitKey(30)
+
+            # --------------------------
+            # Capture Gestures After Countdown
+            # --------------------------
             ret, frame = cap.read()
             frame = cv2.flip(frame, 1)
-            elapsed = time.time() - countdown_start
-            countdown_number = int(countdown_duration - elapsed) + 1
-            cv2.putText(frame, str(countdown_number), (frame.shape[1] // 2 - 50, frame.shape[0] // 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 255), 5)
-            # Draw the ROI rectangles so players know where to show their hands
-            cv2.rectangle(frame, (50, 50), (250, 250), (255, 0, 0), 2)
-            cv2.rectangle(frame, (300, 50), (500, 250), (0, 255, 0), 2)
-            cv2.imshow("Rock Paper Scissors", frame)
-            # Use a short waitKey to allow updates (without freezing for the entire countdown)
-            cv2.waitKey(30)
+            x1, y1, x2, y2 = config["roi1_coords"]
+            roi1 = frame[y1:y2, x1:x2]
+            x1_p2, y1_p2, x2_p2, y2_p2 = config["roi2_coords"]
+            roi2 = frame[y1_p2:y2_p2, x1_p2:x2_p2]
+            gesture1 = get_gesture(roi1, config["debug"], debug_window_name="Debug ROI 1")
+            gesture2 = get_gesture(roi2, config["debug"], debug_window_name="Debug ROI 2")
+            winner = decide_winner(gesture1, gesture2)
+            result_text = (f"{config['player1_name']}: {gesture1} | "
+                           f"{config['player2_name']}: {gesture2} => {winner}")
+            print("Result:", result_text)  # Debug print to verify the result text is set.
+            result_end_time = time.time() + config["result_display_time"]
 
-        # --- Capture the gestures after the countdown ---
-        ret, frame = cap.read()
-        frame = cv2.flip(frame, 1)
-        roi1 = frame[50:250, 50:250]
-        roi2 = frame[50:250, 300:500]
-        gesture1 = get_gesture(roi1, debug)
-        gesture2 = get_gesture(roi2, debug)
-        winner = decide_winner(gesture1, gesture2)
-        result_text = f"P1: {gesture1} | P2: {gesture2} => {winner}"
-        result_end_time = time.time() + 5  # Display result for 5 seconds
+        if key == ord('q'):
+            break
 
-    if key == ord('q'):
-        break
+    cap.release()
+    cv2.destroyAllWindows()
 
-cap.release()
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    main()
