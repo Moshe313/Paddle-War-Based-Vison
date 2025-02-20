@@ -16,9 +16,7 @@ config = {
     "roi2_coords": (300, 50, 500, 250),   # Player 2's ROI location
     "countdown_duration": 3,              # Countdown in seconds
     "result_display_time": 5,             # Time in seconds to display the result
-    "skin_lower": np.array([0, 50, 70], dtype=np.uint8),
-    "skin_upper": np.array([20, 255, 255], dtype=np.uint8),
-    "debug": True                       # Set to True to enable debug windows (shows processed ROI, mask, and H/S/V channels)
+    "debug": True                       # Set to True to enable debug windows
 }
 
 # ====================================
@@ -43,52 +41,72 @@ def decide_winner(gesture1, gesture2):
     else:
         return f"{config['player2_name']} wins!"
 
-def get_gesture(roi, debug=False, debug_window_name="Debug ROI", lower_skin=None, upper_skin=None):
+def get_gesture(roi, debug=False, debug_window_name="Debug ROI"):
     """
-    Processes the provided ROI to detect the hand gesture.
+    Processes the provided ROI to detect the hand gesture without using fixed thresholds.
+    This method uses k-means clustering in the LAB color space to automatically segment the hand.
+    It assumes the hand is roughly centered in the ROI and selects the cluster whose centroid
+    is closest to the ROI center as the hand region. After obtaining a cleaned binary mask of the hand,
+    it uses contour and convexity defect analysis to classify the gesture.
+    
     Returns one of "Rock", "Paper", "Scissors", or "Unknown".
-    If debug is True, overlays the detected gesture on the ROI and displays intermediate windows,
-    including the H, S, and V channels.
+    If debug is True, displays intermediate results.
     """
-    if lower_skin is None:
-        lower_skin = config["skin_lower"]
-    if upper_skin is None:
-        upper_skin = config["skin_upper"]
+    # Convert ROI to LAB color space for better perceptual clustering.
+    roi_lab = cv2.cvtColor(roi, cv2.COLOR_BGR2LAB)
     
-    # Convert ROI to HSV and create a skin mask.
-    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    # Reshape image into a 2D array of pixel values.
+    pixel_values = roi_lab.reshape((-1, 3))
+    pixel_values = np.float32(pixel_values)
     
-    # Display the H, S, V channels when in debug mode.
-    if debug:
-        h, s, v = cv2.split(hsv)
-        cv2.imshow(debug_window_name + " H", h)
-        cv2.imshow(debug_window_name + " S", s)
-        cv2.imshow(debug_window_name + " V", v)
+    # Perform k-means clustering with K=2 (hand vs. background).
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+    K = 2
+    ret, labels, centers = cv2.kmeans(pixel_values, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+    labels = labels.flatten()
     
-    mask = cv2.inRange(hsv, lower_skin, upper_skin)
-
-    # Apply morphological operations to remove noise.
+    # Reshape the labels to the original ROI dimensions.
+    labels_2d = labels.reshape(roi.shape[:2])
+    
+    # Compute the centroid of each cluster.
+    cluster_centroids = []
+    for i in range(K):
+        ys, xs = np.where(labels_2d == i)
+        if len(xs) > 0:
+            centroid = (np.mean(xs), np.mean(ys))
+        else:
+            centroid = (0, 0)
+        cluster_centroids.append(centroid)
+    
+    # Assume the hand is near the center of the ROI.
+    roi_center = (roi.shape[1] / 2, roi.shape[0] / 2)
+    distances = [np.linalg.norm(np.array(c) - np.array(roi_center)) for c in cluster_centroids]
+    hand_cluster = np.argmin(distances)
+    
+    # Create a binary mask for the selected cluster.
+    mask = np.uint8((labels_2d == hand_cluster) * 255)
+    
+    # Clean up the mask using morphological operations.
     kernel = np.ones((3, 3), np.uint8)
-    mask = cv2.dilate(mask, kernel, iterations=4)   # Dilate to fill gaps
-    mask = cv2.GaussianBlur(mask, (5, 5), 100)
-
-    # Find contours in the mask.
-    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-    # Copy ROI for drawing debug information.
-    debug_roi = roi.copy()
+    mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
+    mask_clean = cv2.morphologyEx(mask_clean, cv2.MORPH_CLOSE, kernel, iterations=2)
+    
+    # Find contours in the cleaned mask.
+    contours, _ = cv2.findContours(mask_clean, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    
     gesture = "Unknown"
-
+    debug_roi = roi.copy()
+    
     if contours:
-        # Assume the largest contour is the hand.
+        # Assume the largest contour corresponds to the hand.
         max_contour = max(contours, key=cv2.contourArea)
         cv2.drawContours(debug_roi, [max_contour], -1, (0, 255, 0), 2)
-
+        
         # Approximate the contour for smoother edges.
         epsilon = 0.0005 * cv2.arcLength(max_contour, True)
         approx = cv2.approxPolyDP(max_contour, epsilon, True)
         cv2.drawContours(debug_roi, [approx], -1, (0, 255, 255), 2)
-
+        
         # Find convex hull and convexity defects.
         hull = cv2.convexHull(approx, returnPoints=False)
         if hull is not None and len(hull) > 3:
@@ -110,8 +128,7 @@ def get_gesture(roi, debug=False, debug_window_name="Debug ROI", lower_skin=None
                         angle = np.arccos((b**2 + c**2 - a**2) / (2 * b * c)) * 57
                         if angle <= 90:
                             count_defects += 1
-
-            # Use heuristics based on the number of defects.
+            # Use heuristics based on the number of convexity defects.
             if count_defects == 0:
                 gesture = "Rock"
             elif count_defects == 1:
@@ -120,13 +137,11 @@ def get_gesture(roi, debug=False, debug_window_name="Debug ROI", lower_skin=None
                 gesture = "Paper"
             else:
                 gesture = "Unknown"
-
+    
     if debug:
-        # Overlay the recognized gesture on the debug ROI.
-        cv2.putText(debug_roi, f"Gesture: {gesture}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
         cv2.imshow(debug_window_name, debug_roi)
-        cv2.imshow(debug_window_name + " Mask", mask)
+        cv2.imshow(debug_window_name + " Mask", mask_clean)
+    
     return gesture
 
 # ====================================
@@ -148,7 +163,7 @@ def main():
 
         frame = cv2.flip(frame, 1)
 
-        # Get ROIs for players using configuration coordinates.
+        # Extract ROIs for the players using configuration coordinates.
         x1, y1, x2, y2 = config["roi1_coords"]
         roi1 = frame[y1:y2, x1:x2]
         x1_p2, y1_p2, x2_p2, y2_p2 = config["roi2_coords"]
