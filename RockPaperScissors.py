@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import random
 import time
+import sys
+
 
 # ====================================
 # Configuration Dictionary (Customize)
@@ -18,7 +20,7 @@ config = {
     "result_display_time": 5,             # Time in seconds to display the result
     "skin_lower": np.array([0, 50, 70], dtype=np.uint8),
     "skin_upper": np.array([20, 255, 255], dtype=np.uint8),
-    "debug": True                       # Set to True to enable debug windows (shows processed ROI, mask, and H/S/V channels)
+    "debug": False                       # Set to True to enable debug windows (shows processed ROI, mask, and H/S/V channels)
 }
 
 # ====================================
@@ -31,17 +33,19 @@ def decide_winner(gesture1, gesture2):
     Otherwise, applies the rules:
       - Rock beats Scissors
       - Scissors beats Paper
-      - Paper beats Rock
+      - Paper beats Rock or gesture2 not in rules:
     """
     rules = {"Rock": "Scissors", "Scissors": "Paper", "Paper": "Rock"}
-    if gesture1 not in rules or gesture2 not in rules:
-        return "Unknown"
+    if gesture2 not in rules:
+        return f"{config['player1_name']} wins!", 1
+    if gesture1 not in rules:
+        return f"{config['player2_name']} wins!", 2
     elif gesture1 == gesture2:
-        return "Tie"
+        return "Tie! Let's play again!", 0
     elif rules.get(gesture1) == gesture2:
-        return f"{config['player1_name']} wins!"
+        return f"{config['player1_name']} wins!", 1
     else:
-        return f"{config['player2_name']} wins!"
+        return f"{config['player2_name']} wins!", 2
 
 def get_gesture(roi, debug=False, debug_window_name="Debug ROI", lower_skin=None, upper_skin=None):
     """
@@ -114,7 +118,7 @@ def get_gesture(roi, debug=False, debug_window_name="Debug ROI", lower_skin=None
             # Use heuristics based on the number of defects.
             if count_defects == 0:
                 gesture = "Rock"
-            elif count_defects == 1:
+            elif count_defects in [1]:
                 gesture = "Scissors"
             elif count_defects in [3, 4, 5, 6]:
                 gesture = "Paper"
@@ -141,7 +145,22 @@ def main():
     result_text = None
     result_end_time = 0
 
+    for i in range(3, 0, -1):
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame = cv2.flip(frame, 1)
+        cv2.putText(frame, str(i),
+                    (frame.shape[1] // 2 - 20, frame.shape[0] // 2),
+                    cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 255), 5)
+
+        cv2.imshow(config["window_name"], frame)
+        cv2.waitKey(1000)
+
+    player1, player2 = [], []
+    iterations = 200
     while True:
+        iterations -= 1
         ret, frame = cap.read()
         if not ret:
             break
@@ -149,6 +168,10 @@ def main():
         frame = cv2.flip(frame, 1)
 
         # Get ROIs for players using configuration coordinates.
+        config["roi1_coords"] = (frame.shape[1] // 16, frame.shape[0] // 10, 5 * frame.shape[1] // 16,
+                                 5 * frame.shape[0] // 10)
+        config["roi2_coords"] = (11 * frame.shape[1] // 16, frame.shape[0] // 10, 15 * frame.shape[1] // 16,
+                                 5 * frame.shape[0] // 10)
         x1, y1, x2, y2 = config["roi1_coords"]
         roi1 = frame[y1:y2, x1:x2]
         x1_p2, y1_p2, x2_p2, y2_p2 = config["roi2_coords"]
@@ -170,6 +193,35 @@ def main():
             cv2.putText(frame, f"{config['player2_name']}: {gesture2_live}", 
                         (config["roi2_coords"][0], config["roi2_coords"][1] - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+        else:
+            player1.append(get_gesture(roi1))
+            player2.append(get_gesture(roi2))
+            if not iterations:
+                most_common_word1 = max((w for w in player1 if w != "unknown"), key=player1.count)
+                most_common_word2 = max((w for w in player2 if w != "unknown"), key=player2.count)
+
+                cv2.putText(frame, f"{config['player1_name']}: {most_common_word1}",
+                            (config["roi1_coords"][0], config["roi1_coords"][1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                cv2.putText(frame, f"{config['player2_name']}: {most_common_word2}",
+                            (config["roi2_coords"][0], config["roi2_coords"][1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                winner = decide_winner(most_common_word1, most_common_word2)
+                cv2.putText(frame, winner[0],
+                            (frame.shape[1] // 2 - 100, frame.shape[0] // 2),
+                            cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 4)
+                cv2.imshow(config["window_name"], frame)
+                cv2.waitKey(30)
+
+                while True:
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord('q'):
+                        break
+                if not winner[1]:
+                    return main()
+                return winner[1]
 
         # Overlay result text if active.
         if result_text is not None and time.time() < result_end_time:

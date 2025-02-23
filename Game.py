@@ -4,6 +4,7 @@ import random
 import os
 import cv2  # needed for converting camera frames
 from screeninfo import get_monitors
+from RockPaperScissors import main as who_start
 
 def update_display(SCREEN, game_surface, cam_width, game_width, game_height, show_screen):
     # Clear main screen
@@ -31,6 +32,9 @@ def update_display(SCREEN, game_surface, cam_width, game_width, game_height, sho
     pygame.display.update()
 
 def game(player_image_path, opponent_image_path, keys, show_screen, player_name, opponent_name):
+    '''while not show_screen["show_screen"]:
+        pass
+    starting_player = who_start()'''
     starting_speed = 0.8
     # Initialize Pygame and define sizes
     pygame.init()
