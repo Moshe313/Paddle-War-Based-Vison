@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import random
 import time
 import sys
 
@@ -10,90 +9,93 @@ import sys
 # ====================================
 config = {
     "window_name": "Rock Paper Scissors",
-    "window_size": (800, 600),            # (width, height) for the window (not the frame itself)
+    "window_size": (800, 600),  # (width, height)
     "player1_name": "Alice",
     "player2_name": "Bob",
-    # ROIs are defined as (x1, y1, x2, y2) -- ROI is extracted as frame[y1:y2, x1:x2]
-    "roi1_coords": (50, 50, 250, 250),    # Player 1's ROI location
-    "roi2_coords": (300, 50, 500, 250),   # Player 2's ROI location
-    "countdown_duration": 3,              # Countdown in seconds
-    "result_display_time": 5,             # Time in seconds to display the result
-    "skin_lower": np.array([0, 50, 70], dtype=np.uint8),
-    "skin_upper": np.array([20, 255, 255], dtype=np.uint8),
-    "debug": False                       # Set to True to enable debug windows (shows processed ROI, mask, and H/S/V channels)
+    # ROIs are defined as (x1, y1, x2, y2)
+    "roi1_coords": (50, 50, 250, 250),
+    "roi2_coords": (300, 50, 500, 250),
+    "countdown_duration": 3,
+    "result_display_time": 5,
+    "num_train_frames": 30,     # frames to collect for Gaussian model
+    "debug": True
 }
 
+# Friend’s Gaussian‐model thresholds
+THRESHOLD = 30.0  # Mahalanobis threshold
+# Optionally used to do an initial rough threshold (friend's code uses inRange):
+lower_skin = np.array([0, 80, 60], dtype=np.uint8)
+upper_skin = np.array([20, 150, 255], dtype=np.uint8)
+
 # ====================================
-# Helper Functions
+# Gaussian Model Helpers
+# ====================================
+def fit_gaussian_model(pixels, threshold=THRESHOLD):
+    """
+    Fit a Gaussian model (mean + inverse covariance) to the pixel data.
+    """
+    pixels = np.asarray(pixels, dtype=np.float64)
+    mean = np.mean(pixels, axis=0)
+    cov = np.cov(pixels, rowvar=False)
+    # To avoid numerical issues, add a small term on the diagonal:
+    inv_cov = np.linalg.inv(cov + 1e-8 * np.eye(3))
+    return {"mean": mean, "inv_cov": inv_cov, "threshold": threshold}
+
+def are_pixels_in_distribution(model, hsv_image):
+    """
+    Return a binary mask indicating which pixels in 'hsv_image' match the Gaussian skin model.
+    """
+    mean = model["mean"]
+    inv_cov = model["inv_cov"]
+    threshold = model["threshold"]
+
+    # Flatten (H, W, 3) -> (N, 3)
+    reshaped = hsv_image.reshape(-1, 3).astype(np.float64)
+    diff = reshaped - mean
+    # Mahalanobis distance squared
+    md_sq = np.sum(diff @ inv_cov * diff, axis=1)
+    # Mark “in‐model” if distance < threshold
+    mask = (md_sq < threshold).reshape(hsv_image.shape[:2])
+    return mask.astype(np.uint8)
+
+# ====================================
+# Gesture Classification (unchanged)
 # ====================================
 def decide_winner(gesture1, gesture2):
-    """
-    Determines the winner based on the two gestures.
-    Returns "Tie" if both gestures are the same.
-    Otherwise, applies the rules:
-      - Rock beats Scissors
-      - Scissors beats Paper
-      - Paper beats Rock or gesture2 not in rules:
-    """
     rules = {"Rock": "Scissors", "Scissors": "Paper", "Paper": "Rock"}
     if gesture2 not in rules:
         return f"{config['player1_name']} wins!", 1
     if gesture1 not in rules:
         return f"{config['player2_name']} wins!", 2
     elif gesture1 == gesture2:
-        return "Tie! Let's play again!", 0
-    elif rules.get(gesture1) == gesture2:
-        return f"{config['player1_name']} wins!", 1
+        return "Tie"
+    elif rules[gesture1] == gesture2:
+        return f"{config['player1_name']} wins!"
     else:
         return f"{config['player2_name']} wins!", 2
 
-def get_gesture(roi, debug=False, debug_window_name="Debug ROI", lower_skin=None, upper_skin=None):
+def approximate_hand_gesture(mask, roi_bgr=None, debug=False, debug_window_name="Debug ROI"):
     """
-    Processes the provided ROI to detect the hand gesture.
-    Returns one of "Rock", "Paper", "Scissors", or "Unknown".
-    If debug is True, overlays the detected gesture on the ROI and displays intermediate windows,
-    including the H, S, and V channels.
+    Given a binary mask of the hand region, find the largest contour
+    and apply the classic convex hull + defects method to classify the gesture.
     """
-    if lower_skin is None:
-        lower_skin = config["skin_lower"]
-    if upper_skin is None:
-        upper_skin = config["skin_upper"]
-    
-    # Convert ROI to HSV and create a skin mask.
-    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    
-    # Display the H, S, V channels when in debug mode.
-    if debug:
-        h, s, v = cv2.split(hsv)
-        cv2.imshow(debug_window_name + " H", h)
-        cv2.imshow(debug_window_name + " S", s)
-        cv2.imshow(debug_window_name + " V", v)
-    
-    mask = cv2.inRange(hsv, lower_skin, upper_skin)
-
-    # Apply morphological operations to remove noise.
-    kernel = np.ones((3, 3), np.uint8)
-    mask = cv2.dilate(mask, kernel, iterations=4)   # Dilate to fill gaps
-    mask = cv2.GaussianBlur(mask, (5, 5), 100)
-
-    # Find contours in the mask.
     contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-    # Copy ROI for drawing debug information.
-    debug_roi = roi.copy()
     gesture = "Unknown"
+    debug_roi = roi_bgr.copy() if roi_bgr is not None else None
 
     if contours:
-        # Assume the largest contour is the hand.
+        # Assume largest contour is the hand
         max_contour = max(contours, key=cv2.contourArea)
-        cv2.drawContours(debug_roi, [max_contour], -1, (0, 255, 0), 2)
+        if debug and debug_roi is not None:
+            cv2.drawContours(debug_roi, [max_contour], -1, (0, 255, 0), 2)
 
-        # Approximate the contour for smoother edges.
+        # Approximate
         epsilon = 0.0005 * cv2.arcLength(max_contour, True)
         approx = cv2.approxPolyDP(max_contour, epsilon, True)
-        cv2.drawContours(debug_roi, [approx], -1, (0, 255, 255), 2)
+        if debug and debug_roi is not None:
+            cv2.drawContours(debug_roi, [approx], -1, (0, 255, 255), 2)
 
-        # Find convex hull and convexity defects.
+        # Convex hull + defects
         hull = cv2.convexHull(approx, returnPoints=False)
         if hull is not None and len(hull) > 3:
             defects = cv2.convexityDefects(approx, hull)
@@ -104,9 +106,8 @@ def get_gesture(roi, debug=False, debug_window_name="Debug ROI", lower_skin=None
                     start = tuple(approx[s][0])
                     end = tuple(approx[e][0])
                     far = tuple(approx[f][0])
-                    cv2.circle(debug_roi, far, 4, (0, 0, 255), -1)
-                    
-                    # Calculate the angle using the cosine rule.
+
+                    # Calculate angle
                     a = np.linalg.norm(np.array(end) - np.array(start))
                     b = np.linalg.norm(np.array(far) - np.array(start))
                     c = np.linalg.norm(np.array(end) - np.array(far))
@@ -115,33 +116,118 @@ def get_gesture(roi, debug=False, debug_window_name="Debug ROI", lower_skin=None
                         if angle <= 90:
                             count_defects += 1
 
-            # Use heuristics based on the number of defects.
+            # Heuristics: 0->Rock, 1->Scissors, 3/4/5+->Paper
             if count_defects == 0:
                 gesture = "Rock"
             elif count_defects in [1]:
                 gesture = "Scissors"
             elif count_defects in [3, 4, 5, 6]:
                 gesture = "Paper"
-            else:
-                gesture = "Unknown"
 
-    if debug:
-        # Overlay the recognized gesture on the debug ROI.
+    if debug and debug_roi is not None:
         cv2.putText(debug_roi, f"Gesture: {gesture}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
         cv2.imshow(debug_window_name, debug_roi)
-        cv2.imshow(debug_window_name + " Mask", mask)
+
     return gesture
 
 # ====================================
-# Main Application
+# GAUSSIAN MODEL CALIBRATION
+# ====================================
+def build_gaussian_model_for_roi(cap, roi_coords, num_frames=30, roi_name="ROI"):
+    """
+    Gather frames from the camera for the specified ROI, build a Gaussian model (skin).
+    Use your friend's approach:
+      - Optionally do a rough inRange threshold
+      - Collect the resulting pixels in HSV
+      - Fit the model
+    """
+    print(f"*** Building Gaussian Model for {roi_name} ***")
+    x1, y1, x2, y2 = roi_coords
+
+    # We'll store HSV skin pixels
+    hsv_pixels = []
+
+    for i in range(num_frames):
+        ret, frame = cap.read()
+        if not ret:
+            continue
+
+        frame = cv2.flip(frame, 1)
+        roi_bgr = frame[y1:y2, x1:x2]
+        roi_hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+
+        # 1) Optional rough threshold (friend’s code uses lower_skin/upper_skin)
+        rough_mask = cv2.inRange(roi_hsv, lower_skin, upper_skin)
+        # 2) Morphological cleaning
+        rough_mask = cv2.erode(rough_mask, None, iterations=2)
+        rough_mask = cv2.dilate(rough_mask, None, iterations=2)
+
+        # 3) Collect those pixels that pass this rough test
+        skin_pixels = roi_hsv[rough_mask == 255]
+        hsv_pixels.extend(skin_pixels)
+
+        # Visual feedback
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
+        cv2.putText(frame, f"Training {roi_name}: {i+1}/{num_frames}",
+                    (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        cv2.imshow(config["window_name"], frame)
+        cv2.waitKey(30)
+
+    # Fit the Gaussian model
+    if len(hsv_pixels) > 0:
+        model = fit_gaussian_model(hsv_pixels, threshold=THRESHOLD)
+        print(f"[{roi_name}] Model trained with {len(hsv_pixels)} pixels.\n")
+        return model
+    else:
+        print(f"[{roi_name}] Not enough pixels collected — model is None.")
+        return None
+
+# ====================================
+# GAUSSIAN MODEL DETECTION
+# ====================================
+def detect_hand_by_gaussian_model(roi_bgr, model, debug=False, debug_window_name="Debug ROI"):
+    """
+    Convert ROI to HSV, compute the Mahalanobis distance mask, morphological cleanup,
+    then return the final mask for the hand.
+    """
+    if model is None:
+        # If no model, just return empty
+        h, w, _ = roi_bgr.shape
+        return np.zeros((h, w), dtype=np.uint8)
+
+    roi_hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+
+    # 1) Probability mask from the Gaussian model
+    mask = are_pixels_in_distribution(model, roi_hsv)
+
+    # 2) Morphological cleanup
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.erode(mask, kernel, iterations=1)
+    mask = cv2.dilate(mask, kernel, iterations=2)
+
+    if debug:
+        debug_mask = (mask * 255).astype(np.uint8)
+        cv2.imshow(debug_window_name + " Mask", debug_mask)
+
+    return mask
+
+# ====================================
+# Main Application (Same Structure)
 # ====================================
 def main():
-    # Create a named window and set its size.
     cv2.namedWindow(config["window_name"], cv2.WINDOW_NORMAL)
     cv2.resizeWindow(config["window_name"], config["window_size"][0], config["window_size"][1])
 
     cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Error: Cannot open camera.")
+        return
+
+    # Gaussian models for each player
+    gauss_model_1 = None
+    gauss_model_2 = None
+
     result_text = None
     result_end_time = 0
 
@@ -167,63 +253,32 @@ def main():
 
         frame = cv2.flip(frame, 1)
 
-        # Get ROIs for players using configuration coordinates.
-        config["roi1_coords"] = (frame.shape[1] // 16, frame.shape[0] // 10, 5 * frame.shape[1] // 16,
-                                 5 * frame.shape[0] // 10)
-        config["roi2_coords"] = (11 * frame.shape[1] // 16, frame.shape[0] // 10, 15 * frame.shape[1] // 16,
-                                 5 * frame.shape[0] // 10)
-        x1, y1, x2, y2 = config["roi1_coords"]
-        roi1 = frame[y1:y2, x1:x2]
-        x1_p2, y1_p2, x2_p2, y2_p2 = config["roi2_coords"]
-        roi2 = frame[y1_p2:y2_p2, x1_p2:x2_p2]
+        # Draw rectangles around ROIs
+        (x1, y1, x2, y2) = config["roi1_coords"]
+        (x1_p2, y1_p2, x2_p2, y2_p2) = config["roi2_coords"]
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        cv2.rectangle(frame, (x1_p2, y1_p2), (x2_p2, y2_p2), (0, 255, 0), 2)
 
-        # Draw rectangles around the ROIs.
-        cv2.rectangle(frame, (config["roi1_coords"][0], config["roi1_coords"][1]),
-                             (config["roi1_coords"][2], config["roi1_coords"][3]), (255, 0, 0), 2)
-        cv2.rectangle(frame, (config["roi2_coords"][0], config["roi2_coords"][1]),
-                             (config["roi2_coords"][2], config["roi2_coords"][3]), (0, 255, 0), 2)
+        # If Gaussian models exist, do real-time debug detection
+        if config["debug"] and gauss_model_1 is not None and gauss_model_2 is not None:
+            roi1_bgr = frame[y1:y2, x1:x2]
+            roi2_bgr = frame[y1_p2:y2_p2, x1_p2:x2_p2]
 
-        # In debug mode, get live gesture info and display it.
-        if config["debug"]:
-            gesture1_live = get_gesture(roi1, debug=True, debug_window_name="Debug ROI 1")
-            gesture2_live = get_gesture(roi2, debug=True, debug_window_name="Debug ROI 2")
-            cv2.putText(frame, f"{config['player1_name']}: {gesture1_live}", 
-                        (config["roi1_coords"][0], config["roi1_coords"][1] - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-            cv2.putText(frame, f"{config['player2_name']}: {gesture2_live}", 
-                        (config["roi2_coords"][0], config["roi2_coords"][1] - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            # Player 1
+            mask1 = detect_hand_by_gaussian_model(roi1_bgr, gauss_model_1, debug=True, debug_window_name="Debug ROI 1")
+            gesture1_live = approximate_hand_gesture(mask1, roi1_bgr, debug=True, debug_window_name="Debug ROI 1")
 
-        else:
-            player1.append(get_gesture(roi1))
-            player2.append(get_gesture(roi2))
-            if not iterations:
-                most_common_word1 = max((w for w in player1 if w != "unknown"), key=player1.count)
-                most_common_word2 = max((w for w in player2 if w != "unknown"), key=player2.count)
+            # Player 2
+            mask2 = detect_hand_by_gaussian_model(roi2_bgr, gauss_model_2, debug=True, debug_window_name="Debug ROI 2")
+            gesture2_live = approximate_hand_gesture(mask2, roi2_bgr, debug=True, debug_window_name="Debug ROI 2")
 
-                cv2.putText(frame, f"{config['player1_name']}: {most_common_word1}",
-                            (config["roi1_coords"][0], config["roi1_coords"][1] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-                cv2.putText(frame, f"{config['player2_name']}: {most_common_word2}",
-                            (config["roi2_coords"][0], config["roi2_coords"][1] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            # Show these "live" gestures on the main frame
+            cv2.putText(frame, f"{config['player1_name']}: {gesture1_live}",
+                        (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+            cv2.putText(frame, f"{config['player2_name']}: {gesture2_live}",
+                        (x1_p2, y1_p2 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-                winner = decide_winner(most_common_word1, most_common_word2)
-                cv2.putText(frame, winner[0],
-                            (frame.shape[1] // 2 - 100, frame.shape[0] // 2),
-                            cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 4)
-                cv2.imshow(config["window_name"], frame)
-                cv2.waitKey(30)
-
-                while True:
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == ord('q'):
-                        break
-                if not winner[1]:
-                    return main()
-                return winner[1]
-
-        # Overlay result text if active.
+        # If there's an active result, display it
         if result_text is not None and time.time() < result_end_time:
             cv2.putText(frame, result_text, (50, frame.shape[0] - 50),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
@@ -231,52 +286,76 @@ def main():
             result_text = None
 
         cv2.imshow(config["window_name"], frame)
-
         key = cv2.waitKey(10) & 0xFF
-        if key == ord('g'):
-            # --------------------------
-            # Countdown (Non-Blocking)
-            # --------------------------
+
+        # Press 'c' to calibrate each player's Gaussian model
+        if key == ord('c'):
+            print("[INFO] Calibrating Player 1's hand with Gaussian model...")
+            gauss_model_1 = build_gaussian_model_for_roi(
+                cap, config["roi1_coords"], num_frames=config["num_train_frames"],
+                roi_name=config["player1_name"]
+            )
+
+            print("[INFO] Calibrating Player 2's hand with Gaussian model...")
+            gauss_model_2 = build_gaussian_model_for_roi(
+                cap, config["roi2_coords"], num_frames=config["num_train_frames"],
+                roi_name=config["player2_name"]
+            )
+            print("[INFO] Calibration complete!\n")
+
+        # Press 'g' to do the countdown capture (only if we have both models)
+        if key == ord('g') and gauss_model_1 is not None and gauss_model_2 is not None:
+            # Countdown
             countdown_start = time.time()
             countdown_duration = config["countdown_duration"]
             while time.time() - countdown_start < countdown_duration:
-                ret, frame = cap.read()
-                frame = cv2.flip(frame, 1)
+                ret2, frame_cdown = cap.read()
+                if not ret2:
+                    break
+                frame_cdown = cv2.flip(frame_cdown, 1)
                 elapsed = time.time() - countdown_start
                 countdown_number = int(countdown_duration - elapsed) + 1
-                cv2.putText(frame, str(countdown_number), 
-                            (frame.shape[1] // 2 - 50, frame.shape[0] // 2),
+                cv2.putText(frame_cdown, str(countdown_number),
+                            (frame_cdown.shape[1] // 2 - 50, frame_cdown.shape[0] // 2),
                             cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 255), 5)
-                # Draw ROI rectangles during countdown.
-                cv2.rectangle(frame, (config["roi1_coords"][0], config["roi1_coords"][1]),
-                                     (config["roi1_coords"][2], config["roi1_coords"][3]), (255, 0, 0), 2)
-                cv2.rectangle(frame, (config["roi2_coords"][0], config["roi2_coords"][1]),
-                                     (config["roi2_coords"][2], config["roi2_coords"][3]), (0, 255, 0), 2)
-                cv2.imshow(config["window_name"], frame)
+                # Draw ROI rectangles
+                cv2.rectangle(frame_cdown, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                cv2.rectangle(frame_cdown, (x1_p2, y1_p2), (x2_p2, y2_p2), (0, 255, 0), 2)
+
+                cv2.imshow(config["window_name"], frame_cdown)
                 cv2.waitKey(30)
 
-            # --------------------------
-            # Capture Gestures After Countdown
-            # --------------------------
-            ret, frame = cap.read()
-            frame = cv2.flip(frame, 1)
-            x1, y1, x2, y2 = config["roi1_coords"]
-            roi1 = frame[y1:y2, x1:x2]
-            x1_p2, y1_p2, x2_p2, y2_p2 = config["roi2_coords"]
-            roi2 = frame[y1_p2:y2_p2, x1_p2:x2_p2]
-            gesture1 = get_gesture(roi1, config["debug"], debug_window_name="Debug ROI 1")
-            gesture2 = get_gesture(roi2, config["debug"], debug_window_name="Debug ROI 2")
+            # Capture final gestures after countdown
+            ret2, frame_capture = cap.read()
+            if not ret2:
+                break
+            frame_capture = cv2.flip(frame_capture, 1)
+
+            roi1_bgr = frame_capture[y1:y2, x1:x2]
+            roi2_bgr = frame_capture[y1_p2:y2_p2, x1_p2:x2_p2]
+
+            # Detect + approximate gesture
+            mask1 = detect_hand_by_gaussian_model(roi1_bgr, gauss_model_1, debug=config["debug"], debug_window_name="Debug ROI 1")
+            gesture1 = approximate_hand_gesture(mask1, roi1_bgr, debug=config["debug"], debug_window_name="Debug ROI 1")
+
+            mask2 = detect_hand_by_gaussian_model(roi2_bgr, gauss_model_2, debug=config["debug"], debug_window_name="Debug ROI 2")
+            gesture2 = approximate_hand_gesture(mask2, roi2_bgr, debug=config["debug"], debug_window_name="Debug ROI 2")
+
             winner = decide_winner(gesture1, gesture2)
             result_text = (f"{config['player1_name']}: {gesture1} | "
                            f"{config['player2_name']}: {gesture2} => {winner}")
             print("Result:", result_text)
             result_end_time = time.time() + config["result_display_time"]
 
+        # Press 'q' to quit
         if key == ord('q'):
             break
 
     cap.release()
     cv2.destroyAllWindows()
 
+# ====================================
+# Run the Main
+# ====================================
 if __name__ == "__main__":
     main()
