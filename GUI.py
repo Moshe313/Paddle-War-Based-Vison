@@ -106,58 +106,66 @@ def take_pictures():
    
 
 
-
 def start_game(player_name, opponent_name):
-    """
-    Called after the GUI is destroyed to run the RPS + Pong game.
-    """
-    # Run rock-paper-scissors to determine the player who starts
-    winner = rps.main(player_name, opponent_name)
+    def run_rps():
+        global winner
+        winner = rps.main(player_name, opponent_name)  # Run RPS game
 
-    # Start detection thread (keys_detection updates 'keys' in real-time)
-    detection_thread = threading.Thread(target=keys_detection, args=(keys, show_screen))
-    detection_thread.daemon = True
-    detection_thread.start()
+        # Determine the starting side
+        starting_side = "left" if winner == f"{player_name} wins!" else "right"
 
-    if (winner == f"{player_name} wins!"):
-        winner = "left"
-    else:
-        winner = "right"
+        # Start the countdown before launching Pong
+        root.after(500, lambda: start_countdown(3, starting_side, player_name, opponent_name))
 
-    # Run the Pong game
-    game("player.png", "opponent.png", keys, show_screen, player_name, opponent_name, starting_player= winner)
+    def start_countdown(n, starting_side, player_name, opponent_name):
+        if n > 0:
+            countdown_label.config(text=str(n))  # Update countdown text
+            root.after(1000, start_countdown, n - 1, starting_side, player_name, opponent_name)  # Wait 1 second
+        else:
+            countdown_label.config(text="GO!")  # Show "GO!" for a moment
+            root.after(500, lambda: start_pong(starting_side, player_name, opponent_name))  # Start Pong game after 0.5 seconds
 
-    # Close the game window
-    pygame.quit()
+    def start_pong(starting_side, player_name, opponent_name):
+        countdown_label.pack_forget()  # Hide countdown label
 
-    # Restart the GUI
-    #restart_gui()
+        # Start key detection in a separate thread
+        detection_thread = threading.Thread(target=keys_detection, args=(keys, show_screen))
+        detection_thread.daemon = True
+        detection_thread.start()
+
+        # Start the Pong game
+        game("player.png", "opponent.png", keys, show_screen, player_name, opponent_name, starting_player=starting_side)
+
+        #pygame.quit() - elon
+        root.after(100, restart_gui)  # Return to menu after game ends
+
+    # Add a label for the countdown in the center of the GUI
+    countdown_label = tk.Label(root, text="", font=("Arial", 50), fg="red", bg="white")
+    countdown_label.place(relx=0.5, rely=0.5, anchor="center")
+
+    # Run Rock-Paper-Scissors first in a separate thread
+    threading.Thread(target=run_rps, daemon=True).start()
 
 def on_start():
-
     player_name = player_name_entry.get()
     opponent_name = opponent_name_entry.get()
+    
     if not player_name or not opponent_name:
         messagebox.showerror("Error", "Please enter both player and opponent names.")
         return
-    
-   
-    global cap, update_camera_feeds_id
 
-    # Cancel the camera update callback
+    # Stop camera updates
+    global cap, update_camera_feeds_id
     if update_camera_feeds_id is not None:
         root.after_cancel(update_camera_feeds_id)
 
-    # Release the camera
     if cap is not None and cap.isOpened():
         cap.release()
     cap = None
 
-    root.destroy()
+    # Run start_game() in a separate thread to prevent UI freeze
+    threading.Thread(target=start_game, args=(player_name, opponent_name), daemon=True).start()
 
-
-    # Proceed with the RPS + Pong flow
-    start_game(player_name, opponent_name)
 
 def on_quit():
 
@@ -181,6 +189,14 @@ def restart_gui():
     global left_cam_label, right_cam_label
     global player_name_entry, opponent_name_entry
 
+    #try: -elon
+    #    if root:
+     #       root.destroy()  # Close the existing window properly
+    #except:
+    #    pass
+    # Hide any existing game windows (prevents crashes)
+    for widget in root.winfo_children():
+        widget.destroy()
     root = tk.Tk()
     root.title("Tennis Game + Camera Feeds")
 
