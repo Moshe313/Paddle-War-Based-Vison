@@ -401,19 +401,22 @@ class RPSGameGUI:
         self.root.quit()
 
 
-def main(left_player_name="Player1", right_player_name="Player2"):
+def main(parent, left_player_name="Player1", right_player_name="Player2"):
     config["player1_name"] = left_player_name
     config["player2_name"] = right_player_name
-    root = tk.Tk()
-    app = RPSGameGUI(root)
-    root.mainloop()
+    # Create a new window as a Toplevel from the parent root
+    window = tk.Toplevel(parent)
+    app = RPSGameGUI(window)
+    # Instead of starting a new mainloop, let the parent’s mainloop run.
+    window.grab_set()  # Optional: make it modal
+    window.wait_window()  # Wait until the Toplevel is destroyed
 
+    # When finished, perform cleanup (cancel callbacks, release camera, etc.)
     if app.quit_flag:
         time.sleep(3)
-        root.destroy()
-        app.cap.release()
-        cv2.destroyAllWindows()
+        app.quit_game()  # This cancels after callbacks and releases the camera
         return config["winner"]
+
 
 
 if __name__ == "__main__":

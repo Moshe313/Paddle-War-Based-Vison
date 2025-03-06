@@ -17,12 +17,12 @@ update_camera_feeds_id = None
 update_video_id = None
 
 
-# We'll open one camera capture shared across the GUI
+root = None  # Add this line to define root as a global variable
 cap = None
-
-# Tkinter labels for the camera feeds
 left_cam_label = None
 right_cam_label = None
+player_name_entry = None
+opponent_name_entry = None
 
 def update_camera_feeds():
     """
@@ -108,22 +108,18 @@ def take_pictures():
 
 def start_game(player_name, opponent_name):
     def run_rps():
-        global winner
-        winner = rps.main(player_name, opponent_name)  # Run RPS game
-
-        # Determine the starting side
+        # Schedule the RPS game to run on the main thread.
+        winner = rps.main(root, player_name, opponent_name)
+        # Determine starting side based on the winner...
         starting_side = "left" if winner == f"{player_name} wins!" else "right"
-
-        # Start the countdown before launching Pong
         root.after(500, lambda: start_countdown(3, starting_side, player_name, opponent_name))
-
-    def start_countdown(n, starting_side, player_name, opponent_name):
-        if n > 0:
-            countdown_label.config(text=str(n))  # Update countdown text
-            root.after(1000, start_countdown, n - 1, starting_side, player_name, opponent_name)  # Wait 1 second
-        else:
-            countdown_label.config(text="GO!")  # Show "GO!" for a moment
-            root.after(500, lambda: start_pong(starting_side, player_name, opponent_name))  # Start Pong game after 0.5 seconds
+        def start_countdown(n, starting_side, player_name, opponent_name):
+            if n > 0:
+                countdown_label.config(text=str(n))  # Update countdown text
+                root.after(1000, start_countdown, n - 1, starting_side, player_name, opponent_name)  # Wait 1 second
+            else:
+                countdown_label.config(text="GO!")  # Show "GO!" for a moment
+                root.after(500, lambda: start_pong(starting_side, player_name, opponent_name))  # Start Pong game after 0.5 seconds
 
     def start_pong(starting_side, player_name, opponent_name):
         countdown_label.pack_forget()  # Hide countdown label
@@ -189,16 +185,14 @@ def restart_gui():
     global left_cam_label, right_cam_label
     global player_name_entry, opponent_name_entry
 
-    #try: -elon
-    #    if root:
-     #       root.destroy()  # Close the existing window properly
-    #except:
-    #    pass
     # Hide any existing game windows (prevents crashes)
-    for widget in root.winfo_children():
-        widget.destroy()
-    root = tk.Tk()
+    if root is not None:
+        for widget in root.winfo_children():
+            widget.destroy()
+    else:
+        root = tk.Tk()
     root.title("Tennis Game + Camera Feeds")
+
 
     # 3-column layout
     left_frame = tk.Frame(root, bg="lightblue")
@@ -257,11 +251,18 @@ def restart_gui():
     
 
 def main():
+    global root
+    root = tk.Tk()  # Initialize root before calling restart_gui
+    root.withdraw()  # Hide the root window initially
+
     # Start the GUI
     while True:
         # Destroy everything before restarting
         restart_gui()
+        root.deiconify()  # Show the root window
         root.mainloop()
+        if root.winfo_exists():
+            root.withdraw()  # Hide the root window after mainloop ends
 
 
 if __name__ == "__main__":
