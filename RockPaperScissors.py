@@ -192,7 +192,7 @@ class RPSGameGUI:
         self.start_button.grid(row=2, column=1, padx=10, pady=5)
 
         # Button to quit the game
-        self.quit_button = tk.Button(root, text="Quit", command=self.quit_game, width=30, height=2)
+        self.quit_button = tk.Button(root, text="Quit", command=self.hard_quit_game, width=30, height=2)
         self.quit_button.grid(row=3, column=1, padx=10, pady=5)
 
         # Initialize video capture from the default camera (index 0)
@@ -448,7 +448,11 @@ class RPSGameGUI:
         # If a valid winner is determined (not a tie or unknown), then quit the GUI's main loop
         if winner_text not in ["Tie", "Unknown"]:
             self.quit_flag = True
-            self.root.quit()
+            self.quit_game()
+    
+    def hard_quit_game(self):
+        self.hard_quit_flag = True
+        self.quit_game()
 
     def quit_game(self):
         self.running = False  # Signal the video update loop to stop
@@ -460,8 +464,6 @@ class RPSGameGUI:
             self.root.after(11, dummy)
 
         self.cap.release()  # Release the camera resource
-        self.hard_quit_flag = True
-        self.quit_flag = True
         self.root.quit()   # Quit the Tkinter main loop
 
 def main(left_player_name="Player1", right_player_name="Player2"):
@@ -478,7 +480,7 @@ def main(left_player_name="Player1", right_player_name="Player2"):
         app.cap.release()
         cv2.destroyAllWindows()
         return True
-    elif app.quit_flag:
+    if app.quit_flag:
         time.sleep(3)
         root.destroy()
         app.cap.release()
