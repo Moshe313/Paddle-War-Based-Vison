@@ -11,7 +11,7 @@ from Image_processing import keys_detection  # Import keys_detection from Image_
 import RockPaperScissors as rps  # Import RockPaperScissors module
 
 # Global Variables
-keys = {"player left": False, "player right": False, "opponent left": False, "opponent right": False, "starts": "left"}  # Dictionary to store key states
+keys = {"player left": False, "player right": False, "opponent left": False, "opponent right": False, "starts": "left", "speed_limit": 20}  # Dictionary to store key states
 show_screen = {"show_screen": False, "game_width": 550, "pic": False, "video_prepared": False}  # Dictionary to store screen states
 update_camera_feeds_id = None  # Variable to store the ID of the camera feed update callback
 update_video_id = None  # Variable to store the ID of the video update callback
