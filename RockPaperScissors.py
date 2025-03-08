@@ -169,7 +169,7 @@ def detect_hand_by_gaussian_model(roi_bgr, model):
             static_pixels = (bg_mask) & (diff_sum < tolerance)
             mask[static_pixels] = 0
     
-    mask = fill_small_black_holes(mask, kernel_size=9)
+    mask = fill_small_black_holes(mask, kernel_size=12)
     return mask
 
 
@@ -287,7 +287,7 @@ class RPSGameGUI:
             if self.calibrating:
                 txt = f"Calibrating frame {self.calibration_frame}/{config['num_train_frames']}"
                 # Move calibrating text to bottom of the ROI:
-                pos = (x1, y2 + 20) if self.calibrating_player == 1 else (xx1-40, yy2 + 20)
+                pos = (x1+40, y2 + 20) if self.calibrating_player == 1 else (xx1-40, yy2 + 20)
                 color = (255, 0, 0) if self.calibrating_player == 1 else (0, 255, 0)
                 cv2.putText(frame, txt, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
             else:
