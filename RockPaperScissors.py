@@ -169,7 +169,7 @@ def detect_hand_by_gaussian_model(roi_bgr, model):
             static_pixels = (bg_mask) & (diff_sum < tolerance)
             mask[static_pixels] = 0
     
-    mask = fill_small_black_holes(mask, kernel_size=12)
+    mask = fill_small_black_holes(mask, kernel_size=9)
     return mask
 
 
