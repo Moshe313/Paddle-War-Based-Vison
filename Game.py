@@ -138,7 +138,7 @@ def game(player_image_path, opponent_image_path, keys, show_screen,
     proportion = 0.6  # Scaling factor.
     game_width = int(720 * proportion)
     game_height = int(1280 * proportion)
-    cam_width = game_width
+    cam_width = 1.5 * game_width
     total_width = game_width + 2 * cam_width
 
     # Center the game window.
