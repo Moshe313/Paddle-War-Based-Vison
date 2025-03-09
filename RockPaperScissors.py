@@ -237,8 +237,8 @@ def aggregate_gesture(gesture_list):
         return "Unknown"
     # Ignore "unknown" gestures
     gesture_list = [g for g in gesture_list if g != "Unknown"]
-    counter = Counter(gesture_list)
-    return counter.most_common(1)[0][0]
+    # return the gesture with the highest count
+    return Counter(gesture_list).most_common(1)[0][0]
 
 # --------------------------------------------------
 # The RPS Game GUI Class
@@ -313,10 +313,29 @@ class RPSGameGUI:
                     self.result_text = None
 
             if self.calibrating:
-                txt = f"Calibrating frame {self.calibration_frame}/{config['num_train_frames']}"
-                pos = (x1, y2-220) if self.calibrating_player == 1 else (xx1, yy2-220)
-                color = (255, 0, 0) if self.calibrating_player == 1 else (0, 255, 0)
-                cv2.putText(frame, txt, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                if self.calibrating_player == 1:
+                    roi_x, roi_y, roi_x2, roi_y2 = config["roi1_coords"]
+                    color = (255, 0, 0)
+                else:
+                    roi_x, roi_y, roi_x2, roi_y2 = config["roi2_coords"]
+                    color = (0, 255, 0)
+                roi_width = roi_x2 - roi_x
+                progress = self.calibration_frame / config["num_train_frames"]
+                filled_width = int(progress * roi_width)
+                # Define progress bar rectangle above the ROI.
+                progress_bar_top_left = (roi_x, roi_y - 30)
+                progress_bar_bottom_right = (roi_x + roi_width, roi_y - 10)
+                # Draw progress bar outline.
+                cv2.rectangle(frame, progress_bar_top_left, progress_bar_bottom_right, color, 2)
+                # Draw filled portion.
+                cv2.rectangle(frame, progress_bar_top_left, (roi_x + filled_width, roi_y - 10), color, thickness=-1)
+                # Put percentage text in the center.
+                percentage_text = f"{int(progress * 100)}%"
+                text_size, _ = cv2.getTextSize(percentage_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                text_x = roi_x + (roi_width - text_size[0]) // 2
+                text_y = roi_y - 15 + text_size[1] // 2
+                cv2.putText(frame, percentage_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255),2)
+                                                                                                      
             else:
                 # Apply temporal smoothing for each player's ROI.
                 if self.calibrated_players["Player1"]:
@@ -502,7 +521,31 @@ class RPSGameGUI:
         self.status_label.config(text="Status: " + self.result_text)
         if winner_text not in ["Tie", "Unknown"]:
             self.quit_flag = True
-            self.quit_game()
+            # Prepare the final result text with each player's gesture and the winner declaration.
+            self.result_text = (f"{config['player1_name']}: {final_gesture_p1} | "
+                                f"{config['player2_name']}: {final_gesture_p2} => {winner_text}")
+            # Create a full-window overlay label for a dramatic winner announcement.
+            winner_label = tk.Label(self.root, text=self.result_text,
+                                    font=("Helvetica", 30, "bold"),
+                                    fg="gold", bg="black")
+            winner_label.place(relx=0.5, rely=0.5, anchor="center")
+            
+            # Define a simple pulsating animation for the text.
+            def pulsate(scale=1.0, direction=1):
+                new_size = int(30 * scale)
+                winner_label.config(font=("Helvetica", new_size, "bold"))
+                if scale >= 1.2:
+                    direction = -1
+                elif scale <= 1.0:
+                    direction = 1
+                scale += 0.02 * direction
+                self.root.after(50, lambda: pulsate(scale, direction))
+            pulsate()
+            
+            # Delay for 3 seconds to let the animation play before quitting.
+            self.root.after(3000, self.quit_game)
+
+            #self.quit_game()
 
     def hard_quit_game(self):
         self.hard_quit_flag = True
@@ -526,16 +569,12 @@ def main(left_player_name="Player1", right_player_name="Player2", parent=None):
         root = tk.Toplevel(parent)
     app = RPSGameGUI(root)
     root.mainloop()
+    root.destroy()
+    app.cap.release()
+    cv2.destroyAllWindows()
     if app.hard_quit_flag:
-        root.destroy()
-        app.cap.release()
-        cv2.destroyAllWindows()
         return True
-    if app.quit_flag:
-        time.sleep(3)
-        app.quit_game()
-        cv2.destroyAllWindows()
-        root.destroy()
+    elif app.quit_flag:
         return config["winner"]
 
 if __name__ == "__main__":

@@ -122,6 +122,15 @@ def countdown(SCREEN, game_surface, cam_width, game_width, game_height, show_scr
         pygame.time.delay(33)
     return True
 
+def wait_for_camera_feed(cap, timeout=5000):
+    """Wait up to 'timeout' milliseconds for the camera feed to be ready."""
+    start_time = pygame.time.get_ticks()
+    while pygame.time.get_ticks() - start_time < timeout:
+        ret, frame = cap.read()
+        if ret:
+            return True
+        pygame.time.delay(100)
+    return False
 # ---------------------
 # Main Game Function
 # ---------------------
@@ -158,6 +167,7 @@ def game(player_image_path, opponent_image_path, keys, show_screen,
     background = pygame.transform.scale(pygame.image.load("background.png").convert(), (game_width, game_height))
     game_surface = pygame.Surface((game_width, game_height))
     game_surface.blit(background, (0, 0))
+
 
     # Initialize fonts.
     FONT = pygame.font.SysFont("Consolas", int(game_width / 20))
@@ -222,6 +232,9 @@ def game(player_image_path, opponent_image_path, keys, show_screen,
     powerup_lifetime = 10000
 
     last_score_time = 0
+
+    # Delay for camera feed to stabilize.
+    pygame.time.delay(3000)
 
     # Run countdown.
     countdown_result = countdown(SCREEN, game_surface, cam_width, game_width, game_height, show_screen,
