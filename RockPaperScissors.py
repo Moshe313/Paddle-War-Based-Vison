@@ -25,7 +25,7 @@ config = {
     "num_capture_frames": 10                  # Number of frames to capture for majority voting
 }
 
-THRESHOLD = 40.0                     # Threshold for Gaussian model
+THRESHOLD = 30.0                     # Threshold for Gaussian model
 lower_skin = np.array([0, 80, 60], dtype=np.uint8)    # Lower bound for skin color (HSV)
 upper_skin = np.array([20, 150, 255], dtype=np.uint8)   # Upper bound for skin color (HSV)
 
@@ -35,12 +35,18 @@ backgrounds = {"model1": None, "model2": None}
 # --------------------------------------------------
 # Gaussian Model Helpers and Gesture Detection
 # --------------------------------------------------
-def fit_gaussian_model(pixels, threshold=THRESHOLD):
+def fit_gaussian_model(pixels):
     pixels = np.asarray(pixels, dtype=np.float64)
     mean = np.mean(pixels, axis=0)
     cov = np.cov(pixels, rowvar=False)
     inv_cov = np.linalg.inv(cov + 1e-8 * np.eye(3))
+    # Calculate squared Mahalanobis distances for all calibration pixels
+    diff = pixels - mean
+    md_sq = np.sum(diff @ inv_cov * diff, axis=1)
+    # Set the threshold adaptively: for instance, the 95th percentile of distances
+    threshold = THRESHOLD #np.percentile(md_sq, 95) + 20.0
     return {"mean": mean, "inv_cov": inv_cov, "threshold": threshold}
+
 
 def are_pixels_in_distribution(model, hsv_image):
     if model is None:
@@ -103,7 +109,7 @@ def _calib_thread(self, which_player):
         # Compute background model from calibration frames.
         calib_stack = np.stack(calib_rois, axis=0)  # shape: (num_frames, height, width, channels)
         std = np.std(calib_stack, axis=0)  # per-pixel standard deviation
-        threshold_std = 5.0  # A threshold to decide if a pixel is “static”
+        threshold_std = 10.0  # A threshold to decide if a pixel is “static”
         # Create a background mask: True for pixels that hardly changed.
         background_mask = np.mean(std, axis=2) < threshold_std
         # Use the median value as the background pixel value.
@@ -124,15 +130,12 @@ def aggregate_gesture(gesture_list):
         if not gesture_list:
             return "Unknown"
         count = Counter(gesture_list)
-        # Optionally, you might want to ignore "Unknown" if possible:
+        # ignore "Unknown":
         if "Unknown" in count and len(count) > 1:
             del count["Unknown"]
         if not count:
             return "Unknown"
         
-        # If there are more than half of num_capture_frames "Unknown", return "Unknown"
-        if count.get("Unknown", 0) > config["num_capture_frames"] // 2:
-            return "Unknown"
         return max(count, key=count.get)
 # -------------------------------------
 # In the detection function: remove background pixels.
@@ -304,10 +307,11 @@ class RPSGameGUI:
                 txt1 = f"{config['player1_name']}: {self.current_detection['Player1']}"
                 txt2 = f"{config['player2_name']}: {self.current_detection['Player2']}"
                 # Move detection text to below each ROI:
-                cv2.putText(frame, txt1, (x1, y2 -220),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-                cv2.putText(frame, txt2, (xx1, yy2 - 220),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                if config["debug"]:
+                    cv2.putText(frame, txt1, (x1, y2 -220),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+                    cv2.putText(frame, txt2, (xx1, yy2 - 220),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 if config["debug"] and (self.calibrated_players["Player1"] or self.calibrated_players["Player2"]):
                     self.show_debug_window(frame)
             if self.countdown_active:
