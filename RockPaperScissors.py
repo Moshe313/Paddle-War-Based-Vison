@@ -3,7 +3,7 @@ import threading                      # Import threading module for running oper
 import time                           # Import time module for timing operations (e.g., sleep)
 import cv2                            # Import OpenCV for image and video processing
 import numpy as np                    # Import NumPy for numerical array processing
-from PIL import Image, ImageTk         # Import PIL (Pillow) to convert OpenCV images into Tkinter-compatible images
+from PIL import Image, ImageTk        # Import PIL (Pillow) to convert OpenCV images into Tkinter-compatible images
 from collections import Counter       # Import Counter to count occurrences of elements in a list
 
 # -------------------------------------
@@ -28,8 +28,8 @@ config = {
 THRESHOLD = 30.0  # Threshold for Gaussian model
 
 # These are the original skin thresholds in HSV space
-lower_skin = np.array([0, 80, 60], dtype=np.uint8)    
-upper_skin = np.array([20, 150, 255], dtype=np.uint8)   
+lower_skin = np.array([0, 80, 60], dtype=np.uint8)
+upper_skin = np.array([20, 150, 255], dtype=np.uint8)
 
 models = {"model1": None, "model2": None}   # Dictionaries for storing Gaussian models
 backgrounds = {"model1": None, "model2": None}
@@ -83,6 +83,25 @@ def morphological_processing(mask, kernel_size=5):
     _, binary = cv2.threshold(mask_close, 127, 1, cv2.THRESH_BINARY)
     return binary.astype(np.uint8)
 
+def keep_only_largest_contour(mask):
+    """
+    Takes a binary mask (values 0 and 1) and returns a new mask where only the largest contour 
+    is filled completely (no holes) and all other white regions are removed.
+    """
+    # Convert binary mask (0/1) to 0/255 for contour detection.
+    mask_uint8 = (mask * 255).astype(np.uint8)
+    contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return mask  # No contours found; return original mask.
+    # Find the largest contour by area.
+    largest_contour = max(contours, key=cv2.contourArea)
+    # Create a blank mask and fill the largest contour.
+    new_mask = np.zeros_like(mask_uint8)
+    cv2.fillPoly(new_mask, [largest_contour], 255)
+    # Convert back to a binary mask (0 and 1).
+    new_mask = (new_mask // 255).astype(np.uint8)
+    return new_mask
+
 def detect_hand_black_seg_single_scale(roi_bgr, model):
     """
     Performs hand segmentation on a single scale.
@@ -116,9 +135,12 @@ def multi_scale_segmentation(roi_bgr, model):
 
 def detect_hand_black_seg(roi_bgr, model):
     """
-    Main segmentation function that now uses multi-scale segmentation.
+    Main segmentation function that uses multi-scale segmentation and then filters
+    the result to keep only the largest contour filled completely.
     """
-    return multi_scale_segmentation(roi_bgr, model)
+    mask = multi_scale_segmentation(roi_bgr, model)
+    mask_clean = keep_only_largest_contour(mask)
+    return mask_clean
 
 # --------------------------------------------------
 # Gaussian Model Helpers and Gesture Detection
@@ -213,6 +235,8 @@ def aggregate_gesture(gesture_list):
     """
     if not gesture_list:
         return "Unknown"
+    # Ignore "unknown" gestures
+    gesture_list = [g for g in gesture_list if g != "Unknown"]
     counter = Counter(gesture_list)
     return counter.most_common(1)[0][0]
 
