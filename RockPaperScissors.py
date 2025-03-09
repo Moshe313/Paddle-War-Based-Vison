@@ -18,7 +18,7 @@ config = {
     "roi1_coords": (125, 275, 325, 475),
     "roi2_coords": (350, 275, 550, 475),
     "countdown_duration": 3,                  # Countdown duration in seconds
-    "result_display_time": 5,                 # How long to display the result (in seconds)
+    "result_display_time": 3000,                 # How long to display the result (in milliseconds)
     "num_train_frames": 40,                   # Number of frames for calibration
     "debug": True,                            # If True, show extra debugging info
     "winner": None,                           # Placeholder for the eventual winner text
@@ -234,10 +234,16 @@ def aggregate_gesture(gesture_list):
     Returns the majority gesture from a list of detected gestures.
     """
     if not gesture_list:
+        print("All gestures were 'Unknown'!")
         return "Unknown"
+        
     # Ignore "unknown" gestures
     gesture_list = [g for g in gesture_list if g != "Unknown"]
     # return the gesture with the highest count
+    if not gesture_list:
+        print("All gestures were 'Unknown'!")
+        return "Unknown"
+    print("Gesture counts:", Counter(gesture_list))
     return Counter(gesture_list).most_common(1)[0][0]
 
 # --------------------------------------------------
@@ -484,81 +490,131 @@ class RPSGameGUI:
             return
         threading.Thread(target=self._start_rps_thread, daemon=True).start()
 
+    def start_countdown(self, remaining, on_complete):
+        # Update the countdown value and label
+        self.countdown_value = remaining
+        self.root.after(0, lambda: self.status_label.config(text=f"Status: {remaining}"))
+        print(f"Countdown: {remaining}")
+        if remaining > 0:
+            # Schedule the next countdown update after 1 second.
+            self.root.after(1000, lambda: self.start_countdown(remaining - 1, on_complete))
+        else:
+            on_complete()
+
     def _start_rps_thread(self):
-        self.status_label.config(text="Status: Countdown started...")
-        self.countdown_value = config["countdown_duration"]
-        self.countdown_active = True
-        for remaining in range(config["countdown_duration"], 0, -1):
-            self.countdown_value = remaining
-            time.sleep(1)
-        self.countdown_active = False
-        self.status_label.config(text="Status: Capturing final gestures...")
-        gesture_results_p1 = []
-        gesture_results_p2 = []
-        num_capture_frames = config["num_capture_frames"]
-        for _ in range(num_capture_frames):
-            ret, frame = self.cap.read()
-            if ret:
-                frame = cv2.flip(frame, 1)
-                (x1, y1, x2, y2) = config["roi1_coords"]
-                (xx1, yy1, xx2, yy2) = config["roi2_coords"]
-                roi1_bgr = frame[y1:y2, x1:x2]
-                roi2_bgr = frame[yy1:yy2, xx1:xx2]
-                mask1 = detect_hand_black_seg(roi1_bgr, models["model1"])
-                gesture1 = approximate_hand_gesture(mask1)
-                mask2 = detect_hand_black_seg(roi2_bgr, models["model2"])
-                gesture2 = approximate_hand_gesture(mask2)
-                gesture_results_p1.append(gesture1)
-                gesture_results_p2.append(gesture2)
-            time.sleep(0.1)  # Delay between frames
-        final_gesture_p1 = aggregate_gesture(gesture_results_p1)
-        final_gesture_p2 = aggregate_gesture(gesture_results_p2)
-        winner_text = decide_winner(final_gesture_p1, final_gesture_p2)
-        config["winner"] = winner_text
-        self.result_text = (f"{config['player1_name']}: {final_gesture_p1} | "
-                            f"{config['player2_name']}: {final_gesture_p2} => {winner_text}")
-        self.result_start_time = time.time()
-        self.status_label.config(text="Status: " + self.result_text)
-        if winner_text not in ["Tie", "Unknown"]:
-            self.quit_flag = True
-            # Prepare the final result text with each player's gesture and the winner declaration.
+        # This function initiates a single round of RPS after a countdown.
+        def start_countdown(remaining, on_complete):
+            # Set countdown active so that update_video displays the countdown overlay.
+            self.countdown_active = True
+            if remaining > 0:
+                self.countdown_value = remaining
+                print(f"Countdown: {remaining}")
+                # Schedule the next countdown update after 1 second.
+                self.root.after(1000, lambda: start_countdown(remaining - 1, on_complete))
+            else:
+                self.countdown_value = "GO!"
+                print("Countdown: GO!")
+                # Display "GO!" for 500 ms, then finish the countdown.
+                self.root.after(500, lambda: finish_countdown(on_complete))
+
+        def finish_countdown(on_complete):
+            # End the countdown so update_video stops drawing it.
+            self.countdown_active = False
+            on_complete()
+
+        def capture_round():
+            #self.status_label.config(text="Status: Capturing final gestures...")
+            print("Capturing final gestures...")
+            gesture_results_p1 = []
+            gesture_results_p2 = []
+            print("Capturing final gestures2...")
+            for i in range(config["num_capture_frames"]):
+                ret, frame = self.cap.read()
+                print(f"Frame capture iteration {i+1}, ret = {ret}")
+                if ret:
+                    frame = cv2.flip(frame, 1)
+                    (x1, y1, x2, y2) = config["roi1_coords"]
+                    (xx1, yy1, xx2, yy2) = config["roi2_coords"]
+                    roi1_bgr = frame[y1:y2, x1:x2]
+                    roi2_bgr = frame[yy1:yy2, xx1:xx2]
+                    mask1 = detect_hand_black_seg(roi1_bgr, models["model1"])
+                    gesture1 = approximate_hand_gesture(mask1)
+                    mask2 = detect_hand_black_seg(roi2_bgr, models["model2"])
+                    gesture2 = approximate_hand_gesture(mask2)
+                    gesture_results_p1.append(gesture1)
+                    gesture_results_p2.append(gesture2)
+                time.sleep(0.1)
+            print("Enters aggregation...")
+            final_gesture_p1 = aggregate_gesture(gesture_results_p1)
+            print("Enters aggregation2...")
+            final_gesture_p2 = aggregate_gesture(gesture_results_p2)
+            print("Deciding winner...")
+            winner_text = decide_winner(final_gesture_p1, final_gesture_p2)
+            print(f"{config['player1_name']}: {final_gesture_p1} | "
+                f"{config['player2_name']}: {final_gesture_p2} => {winner_text}")
+            config["winner"] = winner_text
             self.result_text = (f"{config['player1_name']}: {final_gesture_p1} | "
                                 f"{config['player2_name']}: {final_gesture_p2} => {winner_text}")
-            # Create a full-window overlay label for a dramatic winner announcement.
-            winner_label = tk.Label(self.root, text=self.result_text,
-                                    font=("Helvetica", 30, "bold"),
-                                    fg="gold", bg="black")
-            winner_label.place(relx=0.5, rely=0.5, anchor="center")
-            
-            # Define a simple pulsating animation for the text.
-            def pulsate(scale=1.0, direction=1):
-                new_size = int(30 * scale)
-                winner_label.config(font=("Helvetica", new_size, "bold"))
-                if scale >= 1.2:
-                    direction = -1
-                elif scale <= 1.0:
-                    direction = 1
-                scale += 0.02 * direction
-                self.root.after(50, lambda: pulsate(scale, direction))
-            pulsate()
-            
-            # Delay for 3 seconds to let the animation play before quitting.
-            self.root.after(3000, self.quit_game)
+            self.result_start_time = time.time()
+            return winner_text
 
-            #self.quit_game()
+        # This function processes the round after the countdown.
+        def process_round():
+            winner_text = capture_round()
+            if winner_text not in ["Tie", "Unknown"]:
+                # Valid winner found; proceed with winner announcement.
+                self.quit_flag = True
+                # Create an overlay for a dramatic winner announcement.
+                winner_label = tk.Label(self.root, text=self.result_text,
+                                        font=("Helvetica", 30, "bold"),
+                                        fg="gold", bg="black")
+                winner_label.place(relx=0.5, rely=0.5, anchor="center")
+                # Define a pulsating animation for the winner text.
+                def pulsate(scale=1.0, direction=1):
+                    new_size = int(30 * scale)
+                    winner_label.config(font=("Helvetica", new_size, "bold"))
+                    if scale >= 1.2:
+                        direction = -1
+                    elif scale <= 1.0:
+                        direction = 1
+                    scale += 0.02 * direction
+                    self.root.after(50, lambda: pulsate(scale, direction))
+                pulsate()
+                print("Game over! Winner:", winner_text)
+                # Schedule quitting after the result display time.
+                self.root.after(config["result_display_time"], self.quit_game)
+            else:
+                # If it's a tie or unknown, print and update the status, then wait for user input.
+                print("Game over! Tie!")
+                self.status_label.config(text="Status: Tie! Try again! Press 'Start Game' to try again.")
+                # Do not restart automatically; the user must press the Start Game button.
+
+        # Start the countdown, then process the round after the countdown completes.
+        start_countdown(config["countdown_duration"], process_round)
+
+
 
     def hard_quit_game(self):
         self.hard_quit_flag = True
         self.quit_game()
 
     def quit_game(self):
+        print("Quitting...")
         self.running = False
         if self.update_video_id is not None:
             self.root.after_cancel(self.update_video_id)
             self.update_video_id = None
-            self.root.after(11, lambda: None)
-        self.cap.release()
+        if self.cap:
+            self.cap.release()
+        # Explicitly close the debug window if open.
+        cv2.destroyWindow("Debug Window")
+        cv2.destroyAllWindows()
+        # Ensure the Tkinter main loop quits.
         self.root.quit()
+        self.root.destroy()
+
+
+
 
 def main(left_player_name="Player1", right_player_name="Player2", parent=None):
     config["player1_name"] = left_player_name
@@ -569,13 +625,15 @@ def main(left_player_name="Player1", right_player_name="Player2", parent=None):
         root = tk.Toplevel(parent)
     app = RPSGameGUI(root)
     root.mainloop()
-    root.destroy()
-    app.cap.release()
+    if app.cap:
+        app.cap.release()
     cv2.destroyAllWindows()
     if app.hard_quit_flag:
         return True
     elif app.quit_flag:
+        print("Returning winner:", config["winner"])
         return config["winner"]
+
 
 if __name__ == "__main__":
     winner = main()

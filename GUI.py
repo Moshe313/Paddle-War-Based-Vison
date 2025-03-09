@@ -94,6 +94,7 @@ def start_game(player_name, opponent_name):
     """
     global destroy_flag
     winner = rps.main(player_name, opponent_name, parent=root)  # Run the Rock-Paper-Scissors game
+    print("GUI: RPS winner:", winner)  # Print the RPS winner
     if winner == True:
         destroy_flag = True  # Set the destroy flag to True if the game was quit
         return
