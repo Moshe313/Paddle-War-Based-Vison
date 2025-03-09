@@ -15,8 +15,8 @@ config = {
     "player1_name": "Player1",                # Default name for player 1
     "player2_name": "Player2",                # Default name for player 2
     # (x1, y1, x2, y2) coordinates for ROI for player1 and player2 respectively
-    "roi1_coords": (0, 0, 200, 200),
-    "roi2_coords": (440, 0, 640, 200),
+    "roi1_coords": (125, 275, 325, 475),
+    "roi2_coords": (350, 275, 550, 475),
     "countdown_duration": 3,                  # Countdown duration in seconds
     "result_display_time": 5,                 # How long to display the result (in seconds)
     "num_train_frames": 40,                   # Number of frames for calibration
@@ -287,7 +287,7 @@ class RPSGameGUI:
             if self.calibrating:
                 txt = f"Calibrating frame {self.calibration_frame}/{config['num_train_frames']}"
                 # Move calibrating text to bottom of the ROI:
-                pos = (x1+40, y2 + 20) if self.calibrating_player == 1 else (xx1-40, yy2 + 20)
+                pos = (x1, y2-220) if self.calibrating_player == 1 else (xx1, yy2-220)
                 color = (255, 0, 0) if self.calibrating_player == 1 else (0, 255, 0)
                 cv2.putText(frame, txt, pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
             else:
@@ -304,9 +304,9 @@ class RPSGameGUI:
                 txt1 = f"{config['player1_name']}: {self.current_detection['Player1']}"
                 txt2 = f"{config['player2_name']}: {self.current_detection['Player2']}"
                 # Move detection text to below each ROI:
-                cv2.putText(frame, txt1, (x1, y2 + 20),
+                cv2.putText(frame, txt1, (x1, y2 -220),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-                cv2.putText(frame, txt2, (xx1, yy2 + 20),
+                cv2.putText(frame, txt2, (xx1, yy2 - 220),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 if config["debug"] and (self.calibrated_players["Player1"] or self.calibrated_players["Player2"]):
                     self.show_debug_window(frame)
