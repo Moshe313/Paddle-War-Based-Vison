@@ -616,7 +616,6 @@ class RPSGameGUI:
         if self.cap:
             self.cap.release()
         # Explicitly close the debug window if open.
-        cv2.destroyWindow("Debug Window")
         cv2.destroyAllWindows()
         # Ensure the Tkinter main loop quits.
         self.root.quit()
