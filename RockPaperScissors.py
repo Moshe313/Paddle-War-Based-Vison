@@ -78,10 +78,10 @@ def morphological_processing(mask, kernel_size=5):
     then closing to fill small holes.
     """
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
-    mask_open = cv2.morphologyEx(mask.astype(np.uint8)*255, cv2.MORPH_OPEN, kernel)
-    mask_close = cv2.morphologyEx(mask_open, cv2.MORPH_CLOSE, kernel)
-    _, binary = cv2.threshold(mask_close, 127, 1, cv2.THRESH_BINARY)
-    return binary.astype(np.uint8)
+    mask_open = cv2.morphologyEx(mask.astype(np.uint8)*255, cv2.MORPH_OPEN, kernel) # Erosion followed by dilation
+    mask_close = cv2.morphologyEx(mask_open, cv2.MORPH_CLOSE, kernel) # Dilation followed by erosion
+    _, binary = cv2.threshold(mask_close, 127, 1, cv2.THRESH_BINARY) # Convert to binary mask
+    return binary.astype(np.uint8) # Return the morphologically processed mask
 
 def keep_only_largest_contour(mask):
     """
@@ -108,10 +108,10 @@ def detect_hand_black_seg_single_scale(roi_bgr, model):
     Normalizes illumination, segments in both HSV and YCrCb, combines the masks,
     and applies morphological processing.
     """
-    normalized_roi = normalize_illumination(roi_bgr)
-    roi_hsv = cv2.cvtColor(normalized_roi, cv2.COLOR_BGR2HSV)
-    if model is not None:
-        mask1 = are_pixels_in_distribution(model, roi_hsv)
+    normalized_roi = normalize_illumination(roi_bgr)            # Normalize illumination with histogram equalization
+    roi_hsv = cv2.cvtColor(normalized_roi, cv2.COLOR_BGR2HSV)   # Convert the ROI to HSV color space
+    if model is not None:                                    # If a Gaussian model is available, use it
+        mask1 = are_pixels_in_distribution(model, roi_hsv)  # Use the Gaussian model with Mahalanobis distance
     else:
         mask1 = segment_skin_hsv(roi_hsv)
     mask2 = segment_skin_ycrcb(normalized_roi)
@@ -124,13 +124,13 @@ def multi_scale_segmentation(roi_bgr, model):
     Perform segmentation at the original scale and at a 2x-upscaled version.
     The upscaled mask is downscaled and combined with the original mask to capture finer details.
     """
-    mask_original = detect_hand_black_seg_single_scale(roi_bgr, model)
+    mask_original = detect_hand_black_seg_single_scale(roi_bgr, model) # Original scale
     # Upscale ROI 2x
-    roi_up = cv2.resize(roi_bgr, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
-    mask_up = detect_hand_black_seg_single_scale(roi_up, model)
+    roi_up = cv2.resize(roi_bgr, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR) # Upscale the ROI
+    mask_up = detect_hand_black_seg_single_scale(roi_up, model) # Segmentation on the upscaled ROI
     # Downscale the upscaled mask back to original ROI size
-    mask_up_down = cv2.resize(mask_up, (roi_bgr.shape[1], roi_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
-    combined = cv2.bitwise_or(mask_original, mask_up_down)
+    mask_up_down = cv2.resize(mask_up, (roi_bgr.shape[1], roi_bgr.shape[0]), interpolation=cv2.INTER_NEAREST) 
+    combined = cv2.bitwise_or(mask_original, mask_up_down) # Combine the original and downscaled masks
     return combined
 
 def detect_hand_black_seg(roi_bgr, model):
@@ -138,22 +138,24 @@ def detect_hand_black_seg(roi_bgr, model):
     Main segmentation function that uses multi-scale segmentation and then filters
     the result to keep only the largest contour filled completely.
     """
-    mask = multi_scale_segmentation(roi_bgr, model)
-    mask_clean = keep_only_largest_contour(mask)
+    mask = multi_scale_segmentation(roi_bgr, model) # Perform multi-scale segmentation.
+    mask_clean = keep_only_largest_contour(mask) # Keep only the largest contour
     return mask_clean
 
 # --------------------------------------------------
 # Gaussian Model Helpers and Gesture Detection
 # --------------------------------------------------
-def fit_gaussian_model(pixels):
-    pixels = np.asarray(pixels, dtype=np.float64)
-    mean = np.mean(pixels, axis=0)
-    cov = np.cov(pixels, rowvar=False)
-    inv_cov = np.linalg.inv(cov + 1e-8 * np.eye(3))
-    diff = pixels - mean
-    md_sq = np.sum(diff @ inv_cov * diff, axis=1)
-    threshold = THRESHOLD  # A fixed value; can be made adaptive if needed.
-    return {"mean": mean, "inv_cov": inv_cov, "threshold": threshold}
+def fit_gaussian_model(pixels): # Fit a Gaussian model to the skin pixels
+    """
+    Fit a Gaussian model to the skin pixels: compute the mean, covariance, and inverse covariance.
+    """
+
+    pixels = np.asarray(pixels, dtype=np.float64) # Convert the pixels to a NumPy array
+    mean = np.mean(pixels, axis=0) # Compute the mean of the pixels
+    cov = np.cov(pixels, rowvar=False) # Compute the covariance of the pixels
+    inv_cov = np.linalg.inv(cov + 1e-8 * np.eye(3)) # Compute the inverse of the covariance matrix
+    threshold = THRESHOLD  # A fixed value for the threshold
+    return {"mean": mean, "inv_cov": inv_cov, "threshold": threshold} # Return the Gaussian model
 
 def are_pixels_in_distribution(model, hsv_image):
     if model is None:
@@ -162,10 +164,10 @@ def are_pixels_in_distribution(model, hsv_image):
     mean = model["mean"]
     inv_cov = model["inv_cov"]
     threshold = model["threshold"]
-    reshaped = hsv_image.reshape(-1, 3).astype(np.float64)
-    diff = reshaped - mean
-    md_sq = np.sum(diff @ inv_cov * diff, axis=1)
-    mask = (md_sq < threshold).reshape(hsv_image.shape[:2])
+    reshaped = hsv_image.reshape(-1, 3).astype(np.float64)  # Reshape the HSV image to a 2D array of pixels
+    diff = reshaped - mean  # Compute the difference between the reshaped image and the mean
+    md_sq = np.sum(diff @ inv_cov * diff, axis=1)   # Compute the Mahalanobis distance: d^2 = (x - mu) * inv(cov) * (x - mu)
+    mask = (md_sq < threshold).reshape(hsv_image.shape[:2]) # Create a mask based on the Mahalanobis distance
     return mask.astype(np.uint8)
 
 def fill_small_black_holes(mask, kernel_size=3):
@@ -184,32 +186,32 @@ def approximate_hand_gesture(mask):
     contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return "Unknown"
-    max_contour = max(contours, key=cv2.contourArea)
+    max_contour = max(contours, key=cv2.contourArea) # Find the largest contour
     # Lower epsilon factor for more detailed contour approximation.
-    epsilon = 0.0003 * cv2.arcLength(max_contour, True)
-    approx = cv2.approxPolyDP(max_contour, epsilon, True)
+    epsilon = 0.0003 * cv2.arcLength(max_contour, True) # Compute the epsilon for contour approximation
+    approx = cv2.approxPolyDP(max_contour, epsilon, True) # Approximate the contour
     try:
-        hull = cv2.convexHull(approx, returnPoints=False)
-        if hull is None or len(hull) <= 3:
+        hull = cv2.convexHull(approx, returnPoints=False) # Compute the convex hull. Convex hull: smallest convex polygon that encloses the contour
+        if hull is None or len(hull) <= 3: # If the convex hull is not valid, return "Unknown"
             return "Unknown"
-        defects = cv2.convexityDefects(approx, hull)
+        defects = cv2.convexityDefects(approx, hull) # Compute the convexity defects. Convexity defects: local maximum deviations of the hull from the contour
         if defects is None:
             return "Unknown"
     except cv2.error:
         return "Unknown"
     count_defects = 0
-    for i in range(defects.shape[0]):
-        s, e, f, _ = defects[i, 0]
-        start = approx[s][0]
-        end = approx[e][0]
-        far = approx[f][0]
-        a = np.linalg.norm(end - start)
-        b = np.linalg.norm(far - start)
-        c = np.linalg.norm(end - far)
-        if b * c != 0:
-            angle = np.arccos((b**2 + c**2 - a**2) / (2 * b * c)) * 57
-            if angle <= 90:
-                count_defects += 1
+    for i in range(defects.shape[0]):   # Loop over the convexity defects
+        s, e, f, _ = defects[i, 0]     # Get the start, end, and far points of the defect
+        start = approx[s][0]          # Get the start point
+        end = approx[e][0]           # Get the end point
+        far = approx[f][0]         # Get the far point
+        a = np.linalg.norm(end - start) # Compute the distance between the start and end points
+        b = np.linalg.norm(far - start) # Compute the distance between the start and far points
+        c = np.linalg.norm(end - far)  # Compute the distance between the end and far points
+        if b * c != 0: # If the product of b and c is not zero
+            angle = np.arccos((b**2 + c**2 - a**2) / (2 * b * c)) * 57 # Compute the angle using the cosine rule
+            if angle <= 90: # If the angle is less than or equal to 90 degrees
+                count_defects += 1 # Increment the defect count
     if count_defects == 0:
         return "Rock"
     elif count_defects == 1:
@@ -437,53 +439,60 @@ class RPSGameGUI:
         return debug_roi
 
     def calibrate_p1(self):
-        threading.Thread(target=self._calib_thread, args=(1,), daemon=True).start()
+        threading.Thread(target=self._calib_thread, args=(1,), daemon=True).start() # Start a new thread for calibration
 
     def calibrate_p2(self):
-        threading.Thread(target=self._calib_thread, args=(2,), daemon=True).start()
+        threading.Thread(target=self._calib_thread, args=(2,), daemon=True).start() # Start a new thread for calibration
 
     def _calib_thread(self, which_player):
-        self.calibrating = True
-        self.calibrating_player = which_player
-        self.calibration_frame = 0
-        p_name = config["player1_name"] if which_player == 1 else config["player2_name"]
-        self.status_label.config(text=f"Status: Calibrating {p_name}...")
-        pixels = []
+        """
+        This function calibrates the player's hand by capturing a number of frames and fitting a Gaussian model.
+        After calibration is complete, the background is computed using the median of all frames.
+        Finally each player has models for skin and background.
+        """
+        self.calibrating = True                 # Set the calibrating flag to True
+        self.calibrating_player = which_player  # Set the player being calibrated
+        self.calibration_frame = 0                  # Reset the calibration frame counter
+        p_name = config["player1_name"] if which_player == 1 else config["player2_name"] # Get the player name
+        self.status_label.config(text=f"Status: Calibrating {p_name}...") # Update the status label
+        pixels = [] # To store all skin pixels for Gaussian model
         calib_rois = []  # To store each ROI (in HSV) from calibration frames
-        for i in range(config["num_train_frames"]):
-            self.calibration_frame = i + 1
-            ret, frame = self.cap.read()
-            if ret:
-                frame = cv2.flip(frame, 1)
-                if which_player == 1:
+        for i in range(config["num_train_frames"]): # Loop over the number of calibration frames
+            self.calibration_frame = i + 1  # Update the calibration frame number
+            ret, frame = self.cap.read()    # Read a frame from the camera
+            if ret:                        # If the frame is read successfully
+                frame = cv2.flip(frame, 1)  # Flip the frame horizontally
+                if which_player == 1:    # Get the ROI coordinates based on the player being calibrated
                     (x1, y1, x2, y2) = config["roi1_coords"]
                 else:
                     (x1, y1, x2, y2) = config["roi2_coords"]
-                roi = frame[y1:y2, x1:x2]
+                roi = frame[y1:y2, x1:x2]   # Extract the ROI from the frame
                 # Normalize illumination in calibration too.
-                roi_norm = normalize_illumination(roi)
-                hsv = cv2.cvtColor(roi_norm, cv2.COLOR_BGR2HSV)
+                roi_norm = normalize_illumination(roi)  # Normalize the illumination in the ROI
+                hsv = cv2.cvtColor(roi_norm, cv2.COLOR_BGR2HSV) # Convert the ROI to HSV color space
                 calib_rois.append(hsv)  # Save the ROI for background computation
-                rough_mask = cv2.inRange(hsv, lower_skin, upper_skin)
-                rough_mask = cv2.erode(rough_mask, None, iterations=1)
-                rough_mask = cv2.dilate(rough_mask, None, iterations=1)
-                skin_pixels = hsv[rough_mask == 255]
-                pixels.extend(skin_pixels)
+                rough_mask = cv2.inRange(hsv, lower_skin, upper_skin)   # Create a rough mask using HSV thresholds
+                # Erode and dilate the rough mask to remove noise.
+                rough_mask = cv2.erode(rough_mask, None, iterations=1)  # Erode the rough mask. Erode: to shrink the white region in the mask
+                rough_mask = cv2.dilate(rough_mask, None, iterations=1) # Dilate the rough mask. Dilate: to expand the white region in the mask
+                skin_pixels = hsv[rough_mask == 255] # Get the skin pixels from the HSV ROI
+                pixels.extend(skin_pixels) # Add the skin pixels to the list of all skin pixels
             time.sleep(0.05)
-        if len(pixels) > 0:
-            models[f"model{which_player}"] = fit_gaussian_model(pixels)
-            calib_stack = np.stack(calib_rois, axis=0)  # shape: (num_frames, height, width, channels)
+        if len(pixels) > 0: # If there are skin pixels
+            models[f"model{which_player}"] = fit_gaussian_model(pixels) # Fit a Gaussian model to the skin pixels
+            calib_stack = np.stack(calib_rois, axis=0)  # Stack all calibration frames
+            # Static pixels are those with low standard deviation across all frames.
             std = np.std(calib_stack, axis=0)  # per-pixel standard deviation
             threshold_std = 5.0  # Threshold to decide if a pixel is static
-            background_mask = np.mean(std, axis=2) < threshold_std
-            bg_image = np.median(calib_stack, axis=0).astype(np.uint8)
-            backgrounds[f"model{which_player}"] = {"bg_image": bg_image, "bg_mask": background_mask}
+            background_mask = np.mean(std, axis=2) < threshold_std # True for static pixels
+            bg_image = np.median(calib_stack, axis=0).astype(np.uint8) # Median of all frames
+            backgrounds[f"model{which_player}"] = {"bg_image": bg_image, "bg_mask": background_mask} # Store the background image and mask
         else:
-            models[f"model{which_player}"] = None
-        self.calibrated_players[f"Player{which_player}"] = True
-        self.status_label.config(text=f"Status: {p_name} Calibration done!")
-        self.calibrating = False
-
+            models[f"model{which_player}"] = None # If no skin pixels, set model to None
+        self.calibrated_players[f"Player{which_player}"] = True # Set the player as calibrated
+        self.status_label.config(text=f"Status: {p_name} Calibration done!") # Update the status label
+        self.calibrating = False # Set the calibrating flag to False
+ 
     def start_rps(self):
         if not all(self.calibrated_players.values()):
             self.status_label.config(text="Status: Both players must calibrate first!")
@@ -523,22 +532,22 @@ class RPSGameGUI:
             on_complete()
 
         def capture_round():
-            #self.status_label.config(text="Status: Capturing final gestures...")
+            self.status_label.config(text="Status: Capturing final gestures...")
             print("Capturing final gestures...")
             gesture_results_p1 = []
             gesture_results_p2 = []
             print("Capturing final gestures2...")
-            for i in range(config["num_capture_frames"]):
-                ret, frame = self.cap.read()
-                print(f"Frame capture iteration {i+1}, ret = {ret}")
-                if ret:
-                    frame = cv2.flip(frame, 1)
-                    (x1, y1, x2, y2) = config["roi1_coords"]
+            for i in range(config["num_capture_frames"]): # Loop over the number of capture frames
+                ret, frame = self.cap.read() # Read a frame from the camera
+                print(f"Frame capture iteration {i+1}, ret = {ret}") 
+                if ret: # If the frame is read successfully
+                    frame = cv2.flip(frame, 1) # Flip the frame horizontally
+                    (x1, y1, x2, y2) = config["roi1_coords"] 
                     (xx1, yy1, xx2, yy2) = config["roi2_coords"]
                     roi1_bgr = frame[y1:y2, x1:x2]
                     roi2_bgr = frame[yy1:yy2, xx1:xx2]
-                    mask1 = detect_hand_black_seg(roi1_bgr, models["model1"])
-                    gesture1 = approximate_hand_gesture(mask1)
+                    mask1 = detect_hand_black_seg(roi1_bgr, models["model1"]) # Detect the hand in the ROI
+                    gesture1 = approximate_hand_gesture(mask1) # Approximate the hand gesture
                     mask2 = detect_hand_black_seg(roi2_bgr, models["model2"])
                     gesture2 = approximate_hand_gesture(mask2)
                     gesture_results_p1.append(gesture1)
